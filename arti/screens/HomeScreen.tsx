@@ -3,10 +3,11 @@ import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import { getAuth } from 'firebase/auth';
 
 const categories = [
-  { id: 1, title: 'Phonological Process', image: require('../assets/phonological.png') },
-  { id: 2, title: 'Stuttering Therapy', image: require('../assets/stuttering.png') },
-  { id: 3, title: 'Apraxia Of Speech', image: require('../assets/apraxia.png') },
-  { id: 4, title: 'Articulation', image: require('../assets/articulation.png') },
+  { id: 1, title: 'Phonological Process', image: require('../assets/phonological.png'), route: 'InitialDiagnosis' },
+  { id: 2, title: 'Stuttering Therapy', image: require('../assets/stuttering.png'), route: 'StutteringTherapy' },
+  { id: 3, title: 'Apraxia Of Speech', image: require('../assets/apraxia.png'), route: 'ApraxiaSpeech' },
+  { id: 4, title: 'Articulation', image: require('../assets/articulation.png'), route: 'Articulation' },
+  { id: 5, title: 'Add Therapy', image: require('../assets/articulation.png'), route: 'addTherapy' }, // Add Therapy Card
 ];
 
 const HomeScreen = ({ navigation }: any) => {
@@ -32,9 +33,8 @@ const HomeScreen = ({ navigation }: any) => {
           Welcome, <Text style={styles.highlight}>{userName || 'Guest'}</Text>
         </Text>
         <TouchableOpacity onPress={() => navigation.navigate('Profile')}>
-  <Image source={require('../assets/icon.png')} style={styles.profileImage} />
-</TouchableOpacity>
-
+          <Image source={require('../assets/icon.png')} style={styles.profileImage} />
+        </TouchableOpacity>
       </View>
 
       {/* Category Grid */}
@@ -43,7 +43,7 @@ const HomeScreen = ({ navigation }: any) => {
           <TouchableOpacity
             key={item.id}
             style={styles.card}
-            onPress={() => navigation.navigate('phono', { category: item.title })}
+            onPress={() => navigation.navigate(item.route)} // Navigate to respective route
           >
             <Image source={item.image} style={styles.cardImage} />
             <Text style={styles.cardText}>{item.title}</Text>

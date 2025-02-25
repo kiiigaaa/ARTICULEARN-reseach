@@ -1,22 +1,25 @@
+// screens/PhonologicalProcessScreen.tsx
 import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, FlatList, StyleSheet, ActivityIndicator, Image } from 'react-native';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../database/firebaseConfig';
 import { Ionicons } from '@expo/vector-icons';
 
-const PhonologicalProcessScreen = ({ navigation }: any) => {
+const PhonologicalProcessScreen = ({ route, navigation }: any) => {
+  const { tier } = route.params; // Receive the tier from the previous screen
   const [processes, setProcesses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchProcesses = async () => {
       try {
-        const querySnapshot = await getDocs(collection(db, 'phonological_processes'));
+        // Fetch therapy types based on the selected tier
+        const querySnapshot = await getDocs(collection(db, 'therapy_plans', 'masterDoc', tier));
         const data = querySnapshot.docs.map(doc => ({
           id: doc.id,
           name: doc.data().name,
           code: doc.data().code,
-          category: doc.data().category
+          words: doc.data().words
         }));
         setProcesses(data);
       } catch (error) {
@@ -27,19 +30,18 @@ const PhonologicalProcessScreen = ({ navigation }: any) => {
     };
 
     fetchProcesses();
-  }, []);
+  }, [tier]); // Re-fetch when the tier changes
 
   const renderCard = ({ item }: any) => (
     <TouchableOpacity
       style={styles.card}
-      onPress={() => navigation.navigate('ProcessDetail', { process: item })}
+      onPress={() => navigation.navigate('process', { process: item })}
     >
       <View style={styles.icon}>
         <Text style={styles.iconText}>{item.code}</Text>
       </View>
       <View style={styles.textContainer}>
         <Text style={styles.cardTitle}>{item.name}</Text>
-        <Text style={styles.cardSubtitle}>{item.category}</Text>
       </View>
       <Ionicons name="chevron-forward" size={22} color="#888" />
     </TouchableOpacity>
@@ -53,7 +55,7 @@ const PhonologicalProcessScreen = ({ navigation }: any) => {
       </TouchableOpacity>
 
       {/* Header */}
-      <Text style={styles.title}>Phonological Processes</Text>
+      <Text style={styles.title}>Phonological Processes - {tier}</Text>
 
       {loading ? (
         <ActivityIndicator size="large" color="#4A90E2" style={{ marginTop: 50 }} />
@@ -127,11 +129,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: '#333',
-  },
-  cardSubtitle: {
-    fontSize: 14,
-    color: '#777',
-    marginTop: 2,
   },
 });
 

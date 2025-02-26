@@ -1,8 +1,9 @@
 // screens/InitialDiagnosisScreen.tsx
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Alert, Animated } from 'react-native';
 import { Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const TEST_SENTENCES = [
   "Patty baked a big pie.",
@@ -13,7 +14,7 @@ const TEST_SENTENCES = [
 ];
 
 // Replace with your secure API key. For production, never expose your API key on the client.
-const YOUR_OPENAI_API_KEY = "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";
+const YOUR_OPENAI_API_KEY = "api-key";
 
 const InitialDiagnosisScreen = ({ navigation }: any) => {
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -23,6 +24,53 @@ const InitialDiagnosisScreen = ({ navigation }: any) => {
 
   const micAnimation = useRef(new Animated.Value(1)).current;
   const animationRef = useRef<Animated.CompositeAnimation | null>(null);
+
+  const [storedTier, setStoredTier] = useState<string | null>(null);
+
+  useEffect(() => {
+    const checkStoredTier = async () => {
+      const savedTier = await AsyncStorage.getItem('severityTier');
+      if (savedTier) {
+        setStoredTier(savedTier);
+      }
+    };
+
+    checkStoredTier();
+  }, []);
+
+  useEffect(() => {
+    if (storedTier) {
+      // Automatically navigate to the appropriate tier based on stored data
+      navigation.navigate("phono", { tier: `tier_${storedTier}` });
+    }
+  }, [storedTier]);
+
+  const phonologicalAnalysis = (expectedWord: string, userTranscription: string) => {
+    let analysis = { omissions: [], substitutions: [], vowelChanges: [] };
+
+    for (let i = 0; i < expectedWord.length; i++) {
+      const expectedPhoneme = expectedWord[i];
+      const userPhoneme = userTranscription[i];
+
+      if (!userPhoneme) {
+        analysis.omissions.push(expectedPhoneme); // Missing phoneme
+      } else if (userPhoneme !== expectedPhoneme) {
+        analysis.substitutions.push({ expected: expectedPhoneme, user: userPhoneme }); // Substitution
+      }
+    }
+
+    const vowels = ['a', 'e', 'i', 'o', 'u'];
+    for (let i = 0; i < expectedWord.length; i++) {
+      const expectedChar = expectedWord[i];
+      const userChar = userTranscription[i];
+      if (vowels.includes(expectedChar) && userChar !== expectedChar) {
+        analysis.vowelChanges.push({ expected: expectedChar, user: userChar });
+      }
+    }
+
+    return analysis;
+  };
+
 
   // Start recording using expo-av
   const startRecording = async () => {
@@ -73,7 +121,26 @@ const InitialDiagnosisScreen = ({ navigation }: any) => {
         const transcription = await transcribeAudio(uri);
         transcriptions.push(transcription);
       }
+
+      const analysisResults = [];
+      for (let i = 0; i < TEST_SENTENCES.length; i++) {
+        const expectedWord = TEST_SENTENCES[i];
+        const transcription = transcriptions[i] || "";
+
+        const analysis = phonologicalAnalysis(expectedWord, transcription);
+        const errorCount = analysis.omissions.length + analysis.substitutions.length + analysis.vowelChanges.length;
+        let severity = "Mild";
+        if (errorCount > 3) severity = "Moderate";
+        if (errorCount > 5) severity = "Severe";
+
+        analysisResults.push({ analysis, severity });
+      }
+
+      console.log("Analysis results:", analysisResults);
+
       const result = await analyzePhonologicalDisorder(transcriptions);
+      await AsyncStorage.setItem('severityTier', result.severityTier.toString());
+
       console.log("Analysis result:", result);
       navigation.navigate("AnalysisResult", { result });
       // Navigate based on severity tier returned from analysis

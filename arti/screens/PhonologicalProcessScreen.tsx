@@ -32,6 +32,20 @@ const PhonologicalProcessScreen = ({ route, navigation }: any) => {
     fetchProcesses();
   }, [tier]); // Re-fetch when the tier changes
 
+  const getTierLabel = (tier: string) => {
+    switch (tier) {
+      case 'tier_1':
+        return 'Mild';
+      case 'tier_2':
+        return 'Moderate';
+      case 'tier_3':
+        return 'Severe';
+      default:
+        return 'Unknown';
+    }
+  };
+  
+
   const renderCard = ({ item }: any) => (
     <TouchableOpacity
       style={styles.card}
@@ -55,7 +69,7 @@ const PhonologicalProcessScreen = ({ route, navigation }: any) => {
       </TouchableOpacity>
 
       {/* Header */}
-      <Text style={styles.title}>Phonological Processes - {tier}</Text>
+      <Text style={styles.title}>Phonological Processes - {getTierLabel(tier)}</Text>
 
       {loading ? (
         <ActivityIndicator size="large" color="#4A90E2" style={{ marginTop: 50 }} />

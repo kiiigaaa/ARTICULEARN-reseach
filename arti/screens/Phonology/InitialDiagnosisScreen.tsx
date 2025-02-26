@@ -13,7 +13,7 @@ const TEST_SENTENCES = [
 ];
 
 // Replace with your secure API key. For production, never expose your API key on the client.
-const YOUR_OPENAI_API_KEY = "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";
+const YOUR_OPENAI_API_KEY = "api-key";
 
 const InitialDiagnosisScreen = ({ navigation }: any) => {
   const [currentIndex, setCurrentIndex] = useState(0);

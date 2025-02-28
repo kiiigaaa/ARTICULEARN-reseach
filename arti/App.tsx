@@ -13,6 +13,9 @@ import InitialDiagnosisScreen from './screens/Phonology/InitialDiagnosisScreen';
 import AnalysisResultScreen from './screens/Phonology/AnalysisResultScreen';
 import AddTherapyDataScreen from './screens/Phonology/AddTherapyDataScreen';
 import ProcessDetailScreen from './screens/Phonology/ProcessDetailScreen';
+import StutteringTherapy from './screens/stutter/StutteringTherapy';
+import TherapyPracticeScreen from './screens/stutter/TherapyPractice';
+import VoiceAnalysisScreen from './screens/stutter/BackingScreen';
 
 
 const Stack = createStackNavigator();

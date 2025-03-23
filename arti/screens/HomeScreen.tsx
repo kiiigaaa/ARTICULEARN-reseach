@@ -5,7 +5,7 @@ import { getAuth } from 'firebase/auth';
 const categories = [
   { id: 1, title: 'Phonological Process', image: require('../assets/phonological.png'), route: 'InitialDiagnosis' },
   { id: 2, title: 'Stuttering Therapy', image: require('../assets/stuttering.png'), route: 'StutteringTherapy' },
-  { id: 3, title: 'Apraxia Of Speech', image: require('../assets/apraxia.png'), route: 'ApraxiaSpeech' },
+  { id: 3, title: 'Apraxia Of Speech', image: require('../assets/apraxia.png'), route: 'ApraxiaHomeScreen' },
   { id: 4, title: 'Articulation', image: require('../assets/articulation.png'), route: 'Articulation' },
   { id: 5, title: 'Add Therapy', image: require('../assets/articulation.png'), route: 'addTherapy' }, // Add Therapy Card
 ];

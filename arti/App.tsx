@@ -31,6 +31,9 @@ const AppNavigator = () => {
         <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Category" component={CategoryScreen} options={{ headerShown: false }} />
         <Stack.Screen name="phono" component={PhonologicalProcessScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="StutteringTherapy" component={StutteringTherapy} options={{ headerShown: false }} />
+        <Stack.Screen name="TherapyPractice" component={TherapyPracticeScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="VoiceAnalysisScreen" component={VoiceAnalysisScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Profile" component={ProfileScreen} options={{ headerShown: false }} />
         <Stack.Screen name="InitialDiagnosis" component={InitialDiagnosisScreen} options={{ headerShown: false }} />
         <Stack.Screen name="AnalysisResult" component={AnalysisResultScreen} options={{ headerShown: false }} />

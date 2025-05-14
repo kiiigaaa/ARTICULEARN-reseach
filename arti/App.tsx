@@ -13,6 +13,9 @@ import InitialDiagnosisScreen from './screens/Phonology/InitialDiagnosisScreen';
 import AnalysisResultScreen from './screens/Phonology/AnalysisResultScreen';
 import AddTherapyDataScreen from './screens/Phonology/AddTherapyDataScreen';
 import ProcessDetailScreen from './screens/Phonology/ProcessDetailScreen';
+import StutteringTherapy from './screens/stutter/StutteringTherapy';
+import TherapyPracticeScreen from './screens/stutter/TherapyPractice';
+import VoiceAnalysisScreen from './screens/stutter/BackingScreen';
 
 // AOS
 import SpeechScreen from './screens/AOS/AOSSpeechScreen'
@@ -34,6 +37,9 @@ const AppNavigator = () => {
         <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Category" component={CategoryScreen} options={{ headerShown: false }} />
         <Stack.Screen name="phono" component={PhonologicalProcessScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="StutteringTherapy" component={StutteringTherapy} options={{ headerShown: false }} />
+        <Stack.Screen name="TherapyPractice" component={TherapyPracticeScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="VoiceAnalysisScreen" component={VoiceAnalysisScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Profile" component={ProfileScreen} options={{ headerShown: false }} />
         <Stack.Screen name="InitialDiagnosis" component={InitialDiagnosisScreen} options={{ headerShown: false }} />
         <Stack.Screen name="AnalysisResult" component={AnalysisResultScreen} options={{ headerShown: false }} />

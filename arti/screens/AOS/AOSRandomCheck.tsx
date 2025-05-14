@@ -17,7 +17,7 @@ export default function AOSRandomCheck() {
   const [result, setResult] = useState<{ predicted: string; confidence: number } | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const LOCAL_SERVER_URL = 'http://192.168.1.12:5000/predict';
+  const LOCAL_SERVER_URL = 'http://172.28.11.71:5000/predict';
 
   const handleUpload = async () => {
     try {

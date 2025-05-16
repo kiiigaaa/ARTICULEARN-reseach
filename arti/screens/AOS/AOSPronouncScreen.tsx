@@ -4,19 +4,18 @@ import {
   ActivityIndicator, Alert
 } from 'react-native';
 import { db } from '../../database/firebaseConfig';
-import { collection, getDocs, addDoc } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
-import * as Speech from 'expo-speech';
 import { Audio } from 'expo-av';
 
-interface Word {
+type Word = {
   id: string;
   word: string;
   ipa: string;
   pronunciation: string;
   image: string;
-}
+};
 
 const LOCAL_SERVER_URL = 'http://192.168.1.12:5000/predict';
 
@@ -30,22 +29,15 @@ const PronouncScreen = ({ navigation }: any) => {
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [canProceed, setCanProceed] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
-  const [transcription, setTranscription] = useState("");
 
   useEffect(() => {
     const fetchWords = async () => {
       try {
         const snapshot = await getDocs(collection(db, 'aosWords'));
-        const fetchedWords = snapshot.docs.map((doc) => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            word: data.word,
-            ipa: data.ipa,
-            pronunciation: data.pronunciation,
-            image: data.image,
-          };
-        });        
+        const fetchedWords = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...(doc.data() as Omit<Word, 'id'>),
+        }));
         const shuffledWords = fetchedWords.sort(() => Math.random() - 0.5);
         setAosWords(shuffledWords);
         setLoading(false);
@@ -54,6 +46,7 @@ const PronouncScreen = ({ navigation }: any) => {
         setLoading(false);
       }
     };
+
     fetchWords();
   }, []);
 
@@ -79,35 +72,16 @@ const PronouncScreen = ({ navigation }: any) => {
       });
 
       const result = await response.json();
-      setTranscription(result.transcription || "");
 
-      let status = "Correct";
-      let feedbackMessage = null;
-
-      if (result.word_match === false) {
-        feedbackMessage = `❌ Say the correct word: ${word}`;
+      if (result.predicted === 'Apraxia') {
+        setFeedback('Try again, you can do it!');
         setCanProceed(false);
-        status = "Mismatch";
-      } else if (result.predicted === 'Apraxia') {
-        feedbackMessage = '🚨 Apraxia Detected! Try again.';
-        setCanProceed(false);
-        status = "Apraxia";
       } else {
+        setFeedback(null);
         setCanProceed(true);
       }
 
-      setFeedback(feedbackMessage);
-
-      // Store attempt
-      await addDoc(collection(db, "attempts"), {
-        word,
-        transcription: result.transcription,
-        predicted: result.predicted,
-        confidence: result.confidence,
-        status,
-        timestamp: new Date().toISOString(),
-      });
-
+      Alert.alert('🧠 Result', `Prediction: ${result.predicted}\nConfidence: ${result.confidence}`);
     } catch (error) {
       console.error('❌ Error uploading audio:', error);
       Alert.alert('Upload Failed', 'Could not send audio to the server.');
@@ -133,12 +107,22 @@ const PronouncScreen = ({ navigation }: any) => {
     Alert.alert("⚠️ Under Development", "Recording feature is under development.");
   };
 
-  const speakWord = () => {
-    if (currentWord?.word) {
-      Speech.speak(currentWord.word, {
-        language: 'en-US',
-        rate: 0.8
-      });
+  const stopRecording = async () => {
+    if (!recording) return;
+
+    try {
+      await recording.stopAndUnloadAsync();
+      const uri = recording.getURI();
+      const { sound } = await recording.createNewLoadedSoundAsync();
+      setSound(sound);
+      await sound.playAsync();
+      setRecording(null);
+      Alert.alert("✅ Recording Complete", `Saved at: ${uri}`);
+      if (uri && currentWord?.word) {
+        await sendAudioToServer(uri, currentWord.word);
+      }
+    } catch (error) {
+      console.error("❌ Failed to stop recording:", error);
     }
   };
 
@@ -160,7 +144,6 @@ const PronouncScreen = ({ navigation }: any) => {
       setShowInfo(false);
       setCanProceed(false);
       setFeedback(null);
-      setTranscription("");
     } else {
       setModalVisible(false);
     }
@@ -172,7 +155,6 @@ const PronouncScreen = ({ navigation }: any) => {
       setShowInfo(false);
       setCanProceed(false);
       setFeedback(null);
-      setTranscription("");
     }
   };
 
@@ -219,9 +201,9 @@ const PronouncScreen = ({ navigation }: any) => {
                   <Text style={styles.buttonText}>{recording ? "Stop" : "Speak"}</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.infoButton} onPress={speakWord}>
-                  <Ionicons name="volume-high" size={28} color="#fff" />
-                  <Text style={styles.buttonText}>Hear</Text>
+                <TouchableOpacity style={styles.infoButton} onPress={() => setShowInfo(!showInfo)}>
+                  <Ionicons name="information-circle" size={28} color="#fff" />
+                  <Text style={styles.buttonText}>Info</Text>
                 </TouchableOpacity>
               </View>
 
@@ -232,12 +214,6 @@ const PronouncScreen = ({ navigation }: any) => {
                   <Text style={styles.sheetTitle}>Pronunciation:</Text>
                   <Text style={styles.sheetText}>{currentWord.pronunciation}</Text>
                 </View>
-              )}
-
-              {transcription && (
-                <Text style={{ color: '#444', fontStyle: 'italic', marginTop: 10 }}>
-                  🗣️ You said: {transcription}
-                </Text>
               )}
 
               {feedback && (

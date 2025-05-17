@@ -113,15 +113,15 @@ export default function AOSGameScreen() {
   const answers =
     questionIndex === 1
       ? {
-          correct: currentGame.a1.correct,
-          incorrect: currentGame.a1.incorrect,
-          audio: currentGame.a1_audio,
-        }
+        correct: currentGame.a1.correct,
+        incorrect: currentGame.a1.incorrect,
+        audio: currentGame.a1_audio,
+      }
       : {
-          correct: currentGame.a2.correct,
-          incorrect: currentGame.a2.incorrect,
-          audio: currentGame.a2_audio,
-        };
+        correct: currentGame.a2.correct,
+        incorrect: currentGame.a2.incorrect,
+        audio: currentGame.a2_audio,
+      };
   const options = shuffleArray([answers.correct, ...answers.incorrect]);
 
   return (

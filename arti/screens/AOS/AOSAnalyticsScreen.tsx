@@ -4,47 +4,47 @@ import COLORS from './styles/Styles'
 import { FontAwesome, AntDesign, Entypo } from '@expo/vector-icons';
 
 export default function AnalyticsScreen() {
-  return (
-    <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-            <AntDesign name="close" size={24} color="red" />
-            <Text style={styles.title}>Apraxia of Speech</Text>
-            <View />
-        </View>
-        <Text style={styles.title2}>Progress & Analytics</Text>
-
-        <View style={styles.graphContainer}>
-            {/* Add Your Graph Image Here */}
-            <Text>Add Your Graph Image Here !</Text>
-        </View>
-
-        <View style={styles.lineContainer}>
-            <View style={styles.lineOne} />
-            <View style={styles.lineTwo} />
-        </View>
-
-        <View style={styles.bulletContainer}>
-            <View style={styles.bulletRow}>
-                <View style={styles.bulletOne} />
-                <Text style={styles.bulletTextOne}>Completed</Text>
+    return (
+        <SafeAreaView style={styles.container}>
+            <View style={styles.header}>
+                <AntDesign name="close" size={24} color="red" />
+                <Text style={styles.title}>Apraxia of Speech</Text>
+                <View />
             </View>
-            <View style={styles.bulletRow}>
-                <View style={styles.bulletTwo} />
-                <Text style={styles.bulletTextTwo}>Time Spent</Text>
-            </View>
-        </View>
+            <Text style={styles.title2}>Progress & Analytics</Text>
 
-        <View style={styles.cardRow}>
-            <View style={styles.card}>
-                <Text style={styles.cardText}>Pending Tasks</Text>
+            <View style={styles.graphContainer}>
+                {/* Add Your Graph Image Here */}
+                <Text>Add Your Graph Image Here !</Text>
             </View>
-            <View style={styles.card}>
-                <Text style={styles.cardText}>Task Completed</Text>
-                <Text style={styles.cardText}>150</Text>
+
+            <View style={styles.lineContainer}>
+                <View style={styles.lineOne} />
+                <View style={styles.lineTwo} />
             </View>
-        </View>
-    </SafeAreaView>
-  )
+
+            <View style={styles.bulletContainer}>
+                <View style={styles.bulletRow}>
+                    <View style={styles.bulletOne} />
+                    <Text style={styles.bulletTextOne}>Completed</Text>
+                </View>
+                <View style={styles.bulletRow}>
+                    <View style={styles.bulletTwo} />
+                    <Text style={styles.bulletTextTwo}>Time Spent</Text>
+                </View>
+            </View>
+
+            <View style={styles.cardRow}>
+                <View style={styles.card}>
+                    <Text style={styles.cardText}>Pending Tasks</Text>
+                </View>
+                <View style={styles.card}>
+                    <Text style={styles.cardText}>Task Completed</Text>
+                    <Text style={styles.cardText}>150</Text>
+                </View>
+            </View>
+        </SafeAreaView>
+    )
 }
 
 const styles = StyleSheet.create({
@@ -65,7 +65,7 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         marginVertical: 5
     },
-    header:{
+    header: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -79,7 +79,7 @@ const styles = StyleSheet.create({
         width: '85%',
         borderRadius: 5,
         padding: 10,
-        marginVertical: 10 
+        marginVertical: 10
     },
     lineContainer: {
         width: '80%',

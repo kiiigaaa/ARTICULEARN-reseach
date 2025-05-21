@@ -27,7 +27,6 @@ const PronouncScreen = ({ navigation }: any) => {
   const [loading, setLoading] = useState(true);
   const [showInfo, setShowInfo] = useState(false);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [canProceed, setCanProceed] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [transcription, setTranscription] = useState("");
@@ -36,18 +35,11 @@ const PronouncScreen = ({ navigation }: any) => {
     const fetchWords = async () => {
       try {
         const snapshot = await getDocs(collection(db, 'aosWords'));
-        const fetchedWords = snapshot.docs.map((doc) => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            word: data.word,
-            ipa: data.ipa,
-            pronunciation: data.pronunciation,
-            image: data.image,
-          };
-        });
-        const shuffledWords = fetchedWords.sort(() => Math.random() - 0.5);
-        setAosWords(shuffledWords);
+        const fetchedWords = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data()
+        })) as Word[];
+        setAosWords(fetchedWords.sort(() => Math.random() - 0.5));
         setLoading(false);
       } catch (err) {
         console.error('❌ Error fetching data:', err);
@@ -59,52 +51,46 @@ const PronouncScreen = ({ navigation }: any) => {
 
   const sendAudioToServer = async (audioUri: string, word: string) => {
     try {
-      const filename = audioUri.split('/').pop() || 'audio.m4a';
-      const fileType = filename.endsWith('.mp3') ? 'audio/mpeg' : 'audio/m4a';
+      const filename = audioUri.split('/').pop() || 'recording.m4a';
 
       const formData = new FormData();
       formData.append('word', word);
       formData.append('audio', {
         uri: audioUri,
         name: filename,
-        type: fileType,
+        type: 'audio/m4a',
       } as any);
 
       const response = await fetch(LOCAL_SERVER_URL, {
         method: 'POST',
         body: formData,
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
 
       const result = await response.json();
-      setTranscription(result.transcription || "");
+      const safeTranscription = result.transcription ?? "Unknown";
+      setTranscription(safeTranscription);
 
-      let status = "Correct";
       let feedbackMessage = null;
+      const isApraxia = result.predicted === 'Apraxia';
 
-      if (result.word_match === false) {
-        feedbackMessage = `❌ Say the correct word: ${word}`;
+      if (isApraxia) {
+        feedbackMessage = result.word_match === false
+          ? `❌ Incorrect word. Try again: ${word}`
+          : '🚨 Apraxia Detected! Try again.';
         setCanProceed(false);
-        status = "Mismatch";
-      } else if (result.predicted === 'Apraxia') {
-        feedbackMessage = '🚨 Apraxia Detected! Try again.';
-        setCanProceed(false);
-        status = "Apraxia";
       } else {
         setCanProceed(true);
       }
 
       setFeedback(feedbackMessage);
 
-      // Store attempt
       await addDoc(collection(db, "attempts"), {
         word,
-        transcription: result.transcription,
-        predicted: result.predicted,
-        confidence: result.confidence,
-        status,
+        transcription: safeTranscription,
+        predicted: result.predicted ?? "Unknown",
+        confidence: result.confidence ?? 0,
+        status: result.predicted ?? "Unknown",
         timestamp: new Date().toISOString(),
       });
 
@@ -115,11 +101,7 @@ const PronouncScreen = ({ navigation }: any) => {
   };
 
   const handleUpload = async () => {
-    const result = await DocumentPicker.getDocumentAsync({
-      type: 'audio/*',
-      copyToCacheDirectory: true,
-    });
-
+    const result = await DocumentPicker.getDocumentAsync({ type: 'audio/*' });
     if (result.assets && result.assets.length > 0) {
       const file = result.assets[0];
       Alert.alert("✅ Audio Uploaded", `You selected: ${file.name}`);
@@ -130,28 +112,46 @@ const PronouncScreen = ({ navigation }: any) => {
   };
 
   const handleRecord = async () => {
-    Alert.alert("⚠️ Under Development", "Recording feature is under development.");
+    try {
+      const permission = await Audio.requestPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("Permission Required", "Microphone access is needed.");
+        return;
+      }
+
+      if (recording) {
+        await recording.stopAndUnloadAsync();
+        const uri = recording.getURI();
+        setRecording(null);
+        if (uri && currentWord?.word) {
+          await sendAudioToServer(uri, currentWord.word);
+        }
+      } else {
+        await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+        const newRecording = new Audio.Recording();
+        await newRecording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+        await newRecording.startAsync();
+        setRecording(newRecording);
+        Alert.alert("Recording Started", "Speak now. Tap again to stop.");
+      }
+    } catch (error) {
+      console.error("🎤 Recording error:", error);
+      Alert.alert("Recording Failed", "Could not start or stop recording.");
+    }
   };
 
   const speakWord = () => {
     if (currentWord?.word) {
-      Speech.speak(currentWord.word, {
-        language: 'en-US',
-        rate: 0.8
-      });
+      Speech.speak(currentWord.word, { language: 'en-US', rate: 0.8 });
     }
   };
 
   const handleSpeakOptions = () => {
-    Alert.alert(
-      "Choose an Option",
-      "How would you like to provide speech?",
-      [
-        { text: "Upload from Device", onPress: handleUpload },
-        { text: "Record", onPress: handleRecord },
-        { text: "Cancel", style: "cancel" }
-      ]
-    );
+    Alert.alert("Choose an Option", "How would you like to provide speech?", [
+      { text: "Upload from Device", onPress: handleUpload },
+      { text: recording ? "Stop Recording" : "Record", onPress: handleRecord },
+      { text: "Cancel", style: "cancel" }
+    ]);
   };
 
   const handleNext = () => {
@@ -177,11 +177,8 @@ const PronouncScreen = ({ navigation }: any) => {
   };
 
   const handleBack = () => {
-    if (navigation.canGoBack()) {
-      navigation.goBack();
-    } else {
-      navigation.navigate('ApraxiaHomeScreen');
-    }
+    if (navigation.canGoBack()) navigation.goBack();
+    else navigation.navigate('ApraxiaHomeScreen');
   };
 
   const currentWord = aosWords[currentIndex];

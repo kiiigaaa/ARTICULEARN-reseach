@@ -18,6 +18,7 @@ const AOSGaming = ({ navigation }: any) => {
   const [options, setOptions] = useState<string[]>([]);
   const [feedback, setFeedback] = useState<'correct' | 'wrong' | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showCelebration, setShowCelebration] = useState(false);
 
   const shuffleArray = <T,>(arr: T[]): T[] => arr.sort(() => Math.random() - 0.5);
 
@@ -52,7 +53,11 @@ const AOSGaming = ({ navigation }: any) => {
 
   const handleOptionSelect = (option: string) => {
     setSelectedOption(option);
-    setFeedback(option === currentGame.correct_pronunciation ? 'correct' : 'wrong');
+    const isCorrect = option === currentGame.correct_pronunciation;
+    setFeedback(isCorrect ? 'correct' : 'wrong');
+    if (isCorrect && currentIndex + 1 === games.length) {
+      setShowCelebration(true);
+    }
   };
 
   const handleNext = () => {
@@ -68,7 +73,7 @@ const AOSGaming = ({ navigation }: any) => {
       setSelectedOption('');
       setFeedback(null);
     } else {
-      Alert.alert("🎉 Finished", "You've completed all games!");
+      setShowCelebration(true);
     }
   };
 
@@ -81,14 +86,48 @@ const AOSGaming = ({ navigation }: any) => {
     );
   }
 
+  if (showCelebration) {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.celebrateEmoji}>🎉</Text>
+        <Text style={styles.celebrateText}>Congratulations!</Text>
+        <Text style={styles.celebrateSubtext}>You've completed all {games.length} games!</Text>
+        <TouchableOpacity
+          style={styles.controlButton}
+          onPress={() => {
+            setCurrentIndex(0);
+            setShowCelebration(false);
+            setSelectedOption('');
+            setFeedback(null);
+            setOptions(
+              shuffleArray([
+                ...games[0].incorrect_pronunciations,
+                games[0].correct_pronunciation
+              ])
+            );
+          }}
+        >
+          <Text style={styles.controlButtonText}>🔄 Play Again</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
-          <TouchableOpacity 
+      <TouchableOpacity 
         style={styles.backButton} 
         onPress={() => navigation.navigate('ApraxiaHomeScreen')}
       >
         <Ionicons name="arrow-back" size={28} color="#333" />
       </TouchableOpacity>
+
+      {/* Progress Indicator */}
+      <Text style={styles.progressText}>Game {currentIndex + 1} of {games.length}</Text>
+      <View style={styles.progressBarBg}>
+        <View style={[styles.progressBarFill, { width: `${((currentIndex + 1) / games.length) * 100}%` }]} />
+      </View>
+
       <Text style={styles.title}>🔊 Sound Matching Game</Text>
       <Text style={styles.subtitle}>
         🟡 Pick the Correct Pronunciation for: <Text style={{ fontWeight: 'bold' }}>{currentGame.word}</Text>
@@ -98,19 +137,21 @@ const AOSGaming = ({ navigation }: any) => {
         const isSelected = selectedOption === option;
         const isCorrect = option === currentGame.correct_pronunciation;
         let backgroundColor = '#f0f0f0';
-
+        let borderColor = '#ccc';
+        let textColor = '#222';
         if (isSelected) {
           backgroundColor = isCorrect ? '#c8f7c5' : '#f7c5c5';
+          borderColor = isCorrect ? '#4CAF50' : '#F44336';
+          textColor = isCorrect ? '#388e3c' : '#b71c1c';
         }
-
         return (
           <TouchableOpacity
             key={idx}
             onPress={() => handleOptionSelect(option)}
-            style={[styles.optionButton, { backgroundColor }]}
+            style={[styles.optionButton, { backgroundColor, borderColor }]}
             disabled={!!selectedOption}
           >
-            <Text style={styles.optionText}>{option}</Text>
+            <Text style={[styles.optionText, { color: textColor }]}>{option}</Text>
           </TouchableOpacity>
         );
       })}
@@ -119,18 +160,26 @@ const AOSGaming = ({ navigation }: any) => {
         <Text
           style={feedback === 'correct' ? styles.correctFeedback : styles.wrongFeedback}
         >
-          {feedback === 'correct' ? '✅ Answer is correct!' : '❌ Answer is wrong!'}
+          {feedback === 'correct' ? '✅ Great job! That\'s correct!' : '❌ Oops! Try again or tap Retry.'}
         </Text>
       )}
 
       <View style={styles.buttonContainer}>
-        <TouchableOpacity onPress={() => {
-          setSelectedOption('');
-          setFeedback(null);
-        }} style={styles.controlButton}>
+        <TouchableOpacity
+          onPress={() => {
+            setSelectedOption('');
+            setFeedback(null);
+          }}
+          style={[styles.controlButton, feedback === 'correct' && styles.disabledButton]}
+          disabled={feedback === 'correct'}
+        >
           <Text style={styles.controlButtonText}>🔁 Retry</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={handleNext} style={styles.controlButton}>
+        <TouchableOpacity
+          onPress={handleNext}
+          style={[styles.controlButton, !selectedOption && styles.disabledButton]}
+          disabled={!selectedOption}
+        >
           <Text style={styles.controlButtonText}>➡️ Next</Text>
         </TouchableOpacity>
       </View>
@@ -221,5 +270,47 @@ const styles = StyleSheet.create({
     top: 40,
     left: 20,
     zIndex: 10,
+  },
+  progressText: {
+    fontSize: 18,
+    color: '#4da6ff',
+    fontWeight: 'bold',
+    marginTop: 60,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  progressBarBg: {
+    height: 10,
+    backgroundColor: '#e0e0e0',
+    borderRadius: 5,
+    marginBottom: 18,
+    marginHorizontal: 30,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: '#4da6ff',
+    borderRadius: 5,
+  },
+  celebrateEmoji: {
+    fontSize: 60,
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  celebrateText: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#4da6ff',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  celebrateSubtext: {
+    fontSize: 20,
+    color: '#333',
+    textAlign: 'center',
+    marginBottom: 30,
+  },
+  disabledButton: {
+    opacity: 0.5,
   },
 });

@@ -37,12 +37,12 @@ export default function SpeechScreen({ navigation }: any) {
           <Text style={styles.cardText}>Check a random voice</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('AOSGaming')}>
+        {/* <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('AOSGaming')}>
           <View style={styles.imageContainer}>
             <Image style={styles.image} source={require('../../assets/AOS-Game.png')} />
           </View>
           <Text style={styles.cardText}>Game</Text>
-        </TouchableOpacity>
+        </TouchableOpacity> */}
       </View>
     </SafeAreaView>
   );

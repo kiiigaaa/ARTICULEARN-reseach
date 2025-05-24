@@ -1,9 +1,16 @@
 import { View, Text, SafeAreaView, TouchableOpacity, Image, StyleSheet } from 'react-native';
 import React from 'react';
-
+import { Ionicons } from '@expo/vector-icons';
 export default function SpeechScreen({ navigation }: any) {
   return (
     <SafeAreaView style={styles.container}>
+
+          <TouchableOpacity 
+        style={styles.backButton} 
+        onPress={() => navigation.navigate('Home')}
+      >
+        <Ionicons name="arrow-back" size={28} color="#333" />
+      </TouchableOpacity>
       <Text style={styles.title}>Apraxia of Speech</Text>
 
       <View style={styles.cardRow}>
@@ -86,5 +93,11 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 14,
     fontWeight: '700',
+  },
+    backButton: {
+    position: 'absolute',
+    top: 40,
+    left: 20,
+    zIndex: 10,
   },
 });

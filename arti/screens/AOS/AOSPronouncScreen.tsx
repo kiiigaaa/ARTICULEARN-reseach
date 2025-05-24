@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, Image, TouchableOpacity, StyleSheet, Modal,
-  ActivityIndicator, Alert
+  ActivityIndicator, Alert, Animated
 } from 'react-native';
 import { db } from '../../database/firebaseConfig';
 import { collection, getDocs, addDoc } from 'firebase/firestore';
@@ -30,6 +30,10 @@ const PronouncScreen = ({ navigation }: any) => {
   const [canProceed, setCanProceed] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [transcription, setTranscription] = useState("");
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [recordingTimer, setRecordingTimer] = useState<NodeJS.Timeout | null>(null);
+  const bounceAnim = new Animated.Value(1);
 
   useEffect(() => {
     const fetchWords = async () => {
@@ -49,7 +53,23 @@ const PronouncScreen = ({ navigation }: any) => {
     fetchWords();
   }, []);
 
+  const startBounceAnimation = () => {
+    Animated.sequence([
+      Animated.timing(bounceAnim, {
+        toValue: 1.1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(bounceAnim, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
   const sendAudioToServer = async (audioUri: string, word: string) => {
+    setIsProcessing(true);
     try {
       const filename = audioUri.split('/').pop() || 'recording.m4a';
 
@@ -76,14 +96,16 @@ const PronouncScreen = ({ navigation }: any) => {
 
       if (isApraxia) {
         feedbackMessage = result.word_match === false
-          ? `❌ Incorrect word. Try again: ${word}`
-          : '🚨 Apraxia Detected! Try again.';
+          ? `Oops! That's not quite right. Try saying "${word}" again! 🎯`
+          : 'Keep practicing! You can do it! 🌟';
         setCanProceed(false);
       } else {
+        feedbackMessage = 'Great job! You said it perfectly! 🎉';
         setCanProceed(true);
       }
 
       setFeedback(feedbackMessage);
+      startBounceAnimation();
 
       await addDoc(collection(db, "attempts"), {
         word,
@@ -96,7 +118,9 @@ const PronouncScreen = ({ navigation }: any) => {
 
     } catch (error) {
       console.error('❌ Error uploading audio:', error);
-      Alert.alert('Upload Failed', 'Could not send audio to the server.');
+      Alert.alert('Oops!', 'Something went wrong. Let\'s try again! 🎮');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -115,11 +139,18 @@ const PronouncScreen = ({ navigation }: any) => {
     try {
       const permission = await Audio.requestPermissionsAsync();
       if (!permission.granted) {
-        Alert.alert("Permission Required", "Microphone access is needed.");
+        Alert.alert("Hey there!", "We need your permission to use the microphone. Can you help us with that? 🎤");
         return;
       }
 
       if (recording) {
+        if (recordingTime < 1) {
+          Alert.alert("Too Short!", "Please speak a bit longer! 🗣️");
+          return;
+        }
+        if (recordingTimer) clearInterval(recordingTimer);
+        setRecordingTimer(null);
+        setRecordingTime(0);
         await recording.stopAndUnloadAsync();
         const uri = recording.getURI();
         setRecording(null);
@@ -132,11 +163,17 @@ const PronouncScreen = ({ navigation }: any) => {
         await newRecording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
         await newRecording.startAsync();
         setRecording(newRecording);
-        Alert.alert("Recording Started", "Speak now. Tap again to stop.");
+        
+        const timer = setInterval(() => {
+          setRecordingTime(prev => prev + 1);
+        }, 1000);
+        setRecordingTimer(timer);
+        
+        Alert.alert("Ready, Set, Go!", "Speak now! Tap again when you're done. 🎯");
       }
     } catch (error) {
       console.error("🎤 Recording error:", error);
-      Alert.alert("Recording Failed", "Could not start or stop recording.");
+      Alert.alert("Oops!", "Something went wrong with the recording. Let's try again! 🎮");
     }
   };
 
@@ -195,7 +232,7 @@ const PronouncScreen = ({ navigation }: any) => {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>AOS Kids Game</Text>
-      <Text style={styles.subtitle}>Learn words the fun way!</Text>
+      <Text style={styles.subtitle}>Learn words the fun way! 🎮</Text>
 
       <Modal visible={modalVisible} animationType="slide">
         <View style={styles.modalView}>
@@ -205,26 +242,38 @@ const PronouncScreen = ({ navigation }: any) => {
 
           {currentWord && (
             <>
-              <View style={styles.imageFrame}>
+              <Animated.View style={[styles.imageFrame, { transform: [{ scale: bounceAnim }] }]}>
                 <Image source={{ uri: currentWord.image }} style={styles.image} />
-              </View>
+              </Animated.View>
               <Text style={styles.word}>{currentWord.word.toUpperCase()}</Text>
 
               <View style={styles.buttonRow}>
-                <TouchableOpacity style={styles.actionButton} onPress={handleSpeakOptions}>
+                <TouchableOpacity 
+                  style={[styles.actionButton, recording && styles.recordingButton]} 
+                  onPress={handleSpeakOptions}
+                >
                   <Ionicons name="mic" size={28} color="#fff" />
-                  <Text style={styles.buttonText}>{recording ? "Stop" : "Speak"}</Text>
+                  <Text style={styles.buttonText}>
+                    {recording ? `Recording... ${recordingTime}s` : "Speak"}
+                  </Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.infoButton} onPress={speakWord}>
-                  <Ionicons name="volume-high" size={28} color="#fff" />
-                  <Text style={styles.buttonText}>Hear</Text>
+                <TouchableOpacity style={styles.infoButton} onPress={() => setShowInfo(!showInfo)}>
+                  <Ionicons name={showInfo ? "information-circle" : "information-circle-outline"} size={28} color="#fff" />
+                  <Text style={styles.buttonText}>Info</Text>
                 </TouchableOpacity>
               </View>
 
+              {isProcessing && (
+                <View style={styles.processingContainer}>
+                  <ActivityIndicator size="large" color="#61dafb" />
+                  <Text style={styles.processingText}>Listening carefully... 🎧</Text>
+                </View>
+              )}
+
               {showInfo && (
                 <View style={styles.infoBox}>
-                  <Text style={styles.sheetTitle}>IPA:</Text>
+                  <Text style={styles.sheetTitle}>How to say it:</Text>
                   <Text style={styles.sheetText}>/{currentWord.ipa}/</Text>
                   <Text style={styles.sheetTitle}>Pronunciation:</Text>
                   <Text style={styles.sheetText}>{currentWord.pronunciation}</Text>
@@ -232,13 +281,13 @@ const PronouncScreen = ({ navigation }: any) => {
               )}
 
               {transcription && (
-                <Text style={{ color: '#444', fontStyle: 'italic', marginTop: 10 }}>
+                <Text style={styles.transcriptionText}>
                   🗣️ You said: {transcription}
                 </Text>
               )}
 
               {feedback && (
-                <Text style={{ color: 'red', marginTop: 10, fontWeight: 'bold' }}>{feedback}</Text>
+                <Text style={styles.feedbackText}>{feedback}</Text>
               )}
 
               <View style={styles.navButtons}>
@@ -403,6 +452,32 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 10,
     color: '#fff',
+  },
+  recordingButton: {
+    backgroundColor: '#ff6b6b',
+  },
+  processingContainer: {
+    marginTop: 20,
+    alignItems: 'center',
+  },
+  processingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#666',
+  },
+  transcriptionText: {
+    color: '#444',
+    fontStyle: 'italic',
+    marginTop: 10,
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  feedbackText: {
+    marginTop: 10,
+    fontWeight: 'bold',
+    fontSize: 16,
+    textAlign: 'center',
+    color: '#4CAF50',
   },
 });
 

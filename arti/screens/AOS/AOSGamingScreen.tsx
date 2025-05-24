@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Animated, Alert } from 'react-native';
 import { db } from '../../database/firebaseConfig';
 import { collection, getDocs } from 'firebase/firestore';
 import { Audio } from 'expo-av';
+import { Ionicons } from '@expo/vector-icons';
 
 type GameItem = {
   story: string;
@@ -23,7 +24,7 @@ type GameItem = {
   a2_audio: string;
 };
 
-export default function AOSGameScreen() {
+export default function AOSGameScreen({ navigation }: any) {
   const [gameData, setGameData] = useState<GameItem[]>([]);
   const [questionIndex, setQuestionIndex] = useState(1);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -58,8 +59,8 @@ export default function AOSGameScreen() {
   };
 
   const playSound = async (uri: string) => {
-    const { sound } = await Audio.Sound.createAsync({ uri });
-    await sound.playAsync();
+      const { sound } = await Audio.Sound.createAsync({ uri });
+      await sound.playAsync();
   };
 
   const handleAnswer = (answer: string, correctAnswer: string) => {
@@ -126,6 +127,13 @@ export default function AOSGameScreen() {
 
   return (
     <View style={styles.container}>
+      <TouchableOpacity 
+        style={styles.backButton} 
+        onPress={() => navigation.navigate('ApraxiaHomeScreen')}
+      >
+        <Ionicons name="arrow-back" size={28} color="#333" />
+      </TouchableOpacity>
+
       <Text style={styles.title}>📖 Story Time!</Text>
       <Text style={styles.text}>{currentGame.story}</Text>
       <TouchableOpacity style={styles.audioBtn} onPress={() => playSound(currentGame.story_audio)}>
@@ -141,8 +149,8 @@ export default function AOSGameScreen() {
       <View style={styles.answerHeader}>
         <Text style={styles.title}>📝 Choose Your Answer:</Text>
         <TouchableOpacity style={styles.audioPlaySmall} onPress={() => playSound(answers.audio)}>
-          <Text style={styles.audioIcon}>🔊</Text>
-        </TouchableOpacity>
+            <Text style={styles.audioIcon}>🔊</Text>
+          </TouchableOpacity>
       </View>
 
       {options.map((option, idx) => (
@@ -273,4 +281,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 15,
   },
+  backButton: {
+    position: 'absolute',
+    top: 40,
+    left: 20,
+    zIndex: 10,
+  }
 });

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator, Alert, StyleSheet } from 'react-native';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../../database/firebaseConfig';
-
+import { Ionicons } from '@expo/vector-icons';
 // TypeScript type
 type Game = {
   word: string;
@@ -11,7 +11,7 @@ type Game = {
   timestamp?: any;
 };
 
-const AOSGaming = () => {
+const AOSGaming = ({ navigation }: any) => {
   const [games, setGames] = useState<Game[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedOption, setSelectedOption] = useState('');
@@ -83,6 +83,12 @@ const AOSGaming = () => {
 
   return (
     <View style={styles.container}>
+          <TouchableOpacity 
+        style={styles.backButton} 
+        onPress={() => navigation.navigate('ApraxiaHomeScreen')}
+      >
+        <Ionicons name="arrow-back" size={28} color="#333" />
+      </TouchableOpacity>
       <Text style={styles.title}>🔊 Sound Matching Game</Text>
       <Text style={styles.subtitle}>
         🟡 Pick the Correct Pronunciation for: <Text style={{ fontWeight: 'bold' }}>{currentGame.word}</Text>
@@ -209,5 +215,11 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 20,
     fontWeight: 'bold'
-  }
+  },
+    backButton: {
+    position: 'absolute',
+    top: 40,
+    left: 20,
+    zIndex: 10,
+  },
 });

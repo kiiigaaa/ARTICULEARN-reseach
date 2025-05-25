@@ -9,11 +9,11 @@ const AnalysisResultScreen = ({ route, navigation }: any) => {
   // Define a function that navigates to the appropriate therapy tier based on result.severityTier
   const proceedToTherapy = () => {
     if (result.severityTier === 1) {
-      navigation.navigate("phono", { tier: 'tier_1' });
+      navigation.navigate("TherapyCatalogue", { tier: 'tier_1' });
     } else if (result.severityTier === 2) {
-      navigation.navigate("phono", { tier: 'tier_2' });
+      navigation.navigate("TherapyCatalogue", { tier: 'tier_2' });
     } else if (result.severityTier === 3) {
-      navigation.navigate("phono", { tier: 'tier_3' });
+      navigation.navigate("TherapyCatalogue", { tier: 'tier_3' });
     } else {
       navigation.goBack();
     }

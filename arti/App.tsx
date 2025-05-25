@@ -24,6 +24,13 @@ import PronouncScreen from './screens/AOS/AOSPronouncScreen'
 import GamingScreen from './screens/AOS/AOSGamingScreen'
 import AOSGaming from './screens/AOS/AOSGaming'
 import AOSRandomCheck from './screens/AOS/AOSRandomCheck';
+import SoundMatchActivityScreen from './screens/Phonology/SoundMatchActivityScreen';
+import TherapyCatalogueScreen from './screens/Phonology/TherapyCatalogueScreen';
+import SentenceSafariScreen from './screens/Phonology/SentenceSafariScreen';
+import SafariIntroScreen from './screens/Phonology/SentenceSafariComponents/SafariIntroScreen';
+import SpinPracticeScreen from './screens/Phonology/SpinPracticeScreen';
+import PerformanceDetailScreen from './screens/Phonology/PerformanceDetailScreen';
+import PerformanceAnalyticsScreen from './screens/Phonology/PerformanceAnalyticsScreen';
 const Stack = createStackNavigator();
 
 const AppNavigator = () => {
@@ -41,10 +48,19 @@ const AppNavigator = () => {
         <Stack.Screen name="TherapyPractice" component={TherapyPracticeScreen} options={{ headerShown: false }} />
         <Stack.Screen name="VoiceAnalysisScreen" component={VoiceAnalysisScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Profile" component={ProfileScreen} options={{ headerShown: false }} />
-        <Stack.Screen name="InitialDiagnosis" component={InitialDiagnosisScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="InitialDiagnosis" component={InitialDiagnosisScreen} options={{ headerTitle: 'Initial Diagnosis' }} />
         <Stack.Screen name="AnalysisResult" component={AnalysisResultScreen} options={{ headerShown: false }} />
         <Stack.Screen name="addTherapy" component={AddTherapyDataScreen} options={{ headerShown: false }} />
         <Stack.Screen name="process" component={ProcessDetailScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="SoundMatchActivity" component={SoundMatchActivityScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="TherapyCatalogue" component={TherapyCatalogueScreen} options={{ headerTitle: 'Therapy Catalogue' }}/>
+        <Stack.Screen name="SentenceSafari" component={SentenceSafariScreen} options={{ headerShown: false }}/>
+        <Stack.Screen name="SafariIntro" component={SafariIntroScreen} options={{ headerShown: false }}/>
+        <Stack.Screen name="SpinPractice" component={SpinPracticeScreen} options={{ headerTitle: 'Spin Practice' }}/>
+        <Stack.Screen name="Performance" component={PerformanceDetailScreen} options={{ headerShown: false }}/>
+        <Stack.Screen name="PerformanceAnalytics" component={PerformanceAnalyticsScreen} options={{ headerTitle: 'Performance Analytics' }}/>
+
+
 
         {/* AOS */}
         <Stack.Screen name="ApraxiaHomeScreen" component={SpeechScreen} options={{ headerShown: false }} />

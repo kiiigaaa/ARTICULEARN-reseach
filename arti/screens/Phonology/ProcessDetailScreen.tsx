@@ -116,7 +116,7 @@ const ProcessDetailScreen = ({ route, navigation }: any) => {
       const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
         method: "POST",
         headers: {
-          "Authorization": `Bearer api-key`,
+          "Authorization": `Bearer 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`,
           "Content-Type": "multipart/form-data",
         },
         body: formData,
@@ -183,7 +183,7 @@ const ProcessDetailScreen = ({ route, navigation }: any) => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer api-key`,
+          "Authorization": `Bearer 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`,
         },
         body: JSON.stringify({
           model: "gpt-4",

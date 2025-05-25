@@ -17,7 +17,7 @@ type Word = {
   image: string;
 };
 
-const LOCAL_SERVER_URL = 'http://192.168.1.12:5000/predict';
+const LOCAL_SERVER_URL = 'http://172.20.10.4:5000/predict-apra';
 
 const PronouncScreen = ({ navigation }: any) => {
   const [aosWords, setAosWords] = useState<Word[]>([]);

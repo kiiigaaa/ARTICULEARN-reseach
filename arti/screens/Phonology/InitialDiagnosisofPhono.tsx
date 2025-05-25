@@ -13,7 +13,7 @@ const TEST_SENTENCES = [
 ];
 
 // Fake API Key (just for demonstration purposes)
-const YOUR_OPENAI_API_KEY = "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";
+const YOUR_OPENAI_API_KEY = "";
 
 const InitialDiagnosisScreen = ({ navigation }: any) => {
   const [currentIndex, setCurrentIndex] = useState(0);

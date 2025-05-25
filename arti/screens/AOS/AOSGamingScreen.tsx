@@ -1,8 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  ActivityIndicator,
+  Alert,
+} from 'react-native';
 import { db } from '../../database/firebaseConfig';
 import { collection, getDocs } from 'firebase/firestore';
 import { Audio } from 'expo-av';
+import { Ionicons } from '@expo/vector-icons';
 
 type GameItem = {
   story: string;
@@ -23,7 +31,13 @@ type GameItem = {
   a2_audio: string;
 };
 
-export default function AOSGameScreen() {
+type Props = {
+  navigation: {
+    navigate: (screen: string) => void;
+  };
+};
+
+const AOSGameScreen: React.FC<Props> = ({ navigation }) => {
   const [gameData, setGameData] = useState<GameItem[]>([]);
   const [questionIndex, setQuestionIndex] = useState(1);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -31,57 +45,98 @@ export default function AOSGameScreen() {
   const [loading, setLoading] = useState(true);
   const [showNextQuestionBtn, setShowNextQuestionBtn] = useState(false);
   const [showNextStoryBtn, setShowNextStoryBtn] = useState(false);
+  const [hasAnswered, setHasAnswered] = useState(false);
+  const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [options, setOptions] = useState<string[]>([]);
+  const [completedGames, setCompletedGames] = useState(0);
 
   const fetchRandomGame = async () => {
     try {
       const snapshot = await getDocs(collection(db, 'paraGameAOS'));
       const allGames = snapshot.docs.map((doc) => doc.data() as GameItem);
-
+      
       if (allGames.length === 0) {
-        console.warn('❌ No games found in Firestore!');
+        console.warn('No games found in Firestore!');
         setLoading(false);
         return;
       }
 
-      const randomIndex = Math.floor(Math.random() * allGames.length);
-      const selectedGame = allGames[randomIndex];
-      setGameData([selectedGame]);
-      setQuestionIndex(1);
-      setCorrectCount(0);
-      setShowNextQuestionBtn(false);
-      setShowNextStoryBtn(false);
+      const randomGame = allGames[Math.floor(Math.random() * allGames.length)];
+      setGameData([randomGame]);
+      resetGameState();
     } catch (error) {
-      console.error('❌ Error fetching data:', error);
+      console.error('Error fetching data:', error);
+      Alert.alert('Oops!', 'Could not load the game. Please try again! 🎮');
     } finally {
       setLoading(false);
     }
   };
 
-  const playSound = async (uri: string) => {
-    const { sound } = await Audio.Sound.createAsync({ uri });
-    await sound.playAsync();
+  const resetGameState = () => {
+    setQuestionIndex(1);
+    setCorrectCount(0);
+    setShowNextQuestionBtn(false);
+    setShowNextStoryBtn(false);
+    setFeedback(null);
+    setSelectedAnswer(null);
+    setHasAnswered(false);
   };
 
-  const handleAnswer = (answer: string, correctAnswer: string) => {
-    const isCorrect = answer === correctAnswer;
-    setFeedback(isCorrect ? '🎉 Yay! That’s right!' : '🙈 Oops! Try again!');
-
-    if (isCorrect) {
-      setCorrectCount((prev) => prev + 1);
-      setShowNextQuestionBtn(questionIndex === 1);
-      setShowNextStoryBtn(questionIndex === 2 && correctCount + 1 === 2);
+  const playSound = async (uri: string) => {
+    try {
+      setIsPlayingAudio(true);
+      const { sound } = await Audio.Sound.createAsync({ uri });
+      await sound.playAsync();
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (!status.isLoaded) return;
+        if (status.isLoaded && status.didJustFinish) {
+          setIsPlayingAudio(false);
+        }
+      });
+    } catch (error) {
+      console.error('Error playing sound:', error);
+      setIsPlayingAudio(false);
+      Alert.alert('Oops!', 'Could not play the audio. Let\'s try again! 🎵');
     }
+  };
 
-    setTimeout(() => setFeedback(null), 1500);
+  const handleAnswer = (answer: string, correct: string) => {
+    if (hasAnswered && selectedAnswer === answer) return;
+    
+    setSelectedAnswer(answer);
+    const isCorrect = answer === correct;
+    
+    if (isCorrect) {
+      setHasAnswered(true);
+      setFeedback('🎉 Amazing! You got it right!');
+      setCorrectCount(prev => prev + 1);
+      if (questionIndex === 1) setShowNextQuestionBtn(true);
+      if (questionIndex === 2 && correctCount + 1 === 2) setShowNextStoryBtn(true);
+    } else {
+      setFeedback('🙈 Not quite right, try again!');
+      // Don't set hasAnswered to true for wrong answers
+    }
   };
 
   const goToNextQuestion = () => {
     setQuestionIndex(2);
     setShowNextQuestionBtn(false);
+    setFeedback(null);
+    setSelectedAnswer(null);
+    setHasAnswered(false);
+    // Reset options for the second question
+    if (gameData.length > 0) {
+      const currentGame = gameData[0];
+      if (currentGame.a2?.correct && currentGame.a2?.incorrect) {
+        setOptions(shuffleArray([currentGame.a2.correct, ...currentGame.a2.incorrect]));
+      }
+    }
   };
 
   const goToNextStory = () => {
     setLoading(true);
+    setCompletedGames(prev => prev + 1);
     fetchRandomGame();
   };
 
@@ -89,66 +144,148 @@ export default function AOSGameScreen() {
     fetchRandomGame();
   }, []);
 
+  useEffect(() => {
+    if (gameData.length > 0) {
+      const currentGame = gameData[0];
+      const currentAnswers = questionIndex === 1 
+        ? currentGame.a1 
+        : currentGame.a2;
+
+      if (currentAnswers?.correct && currentAnswers?.incorrect) {
+        setOptions(shuffleArray([currentAnswers.correct, ...currentAnswers.incorrect]));
+      }
+    }
+  }, [gameData, questionIndex]);
+
   if (loading) {
     return (
       <View style={styles.container}>
         <ActivityIndicator size="large" color="#fca311" />
-        <Text style={styles.subtitle}>Getting your game ready...</Text>
+        <Text style={styles.subtitle}>Getting your game ready... 🎮</Text>
       </View>
     );
   }
 
-  if (!loading && gameData.length === 0) {
+  if (!loading && (!gameData || gameData.length === 0)) {
     return (
       <View style={styles.container}>
         <Text style={styles.title}>⚠️ No game data found</Text>
         <Text style={styles.subtitle}>Please check your connection.</Text>
+        <TouchableOpacity 
+          style={[styles.nextBtn, { marginTop: 20 }]} 
+          onPress={fetchRandomGame}
+        >
+          <Text style={styles.btnText}>🔄 Try Again</Text>
+        </TouchableOpacity>
       </View>
     );
   }
 
   const currentGame = gameData[0];
+  if (!currentGame) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.title}>⚠️ Something went wrong</Text>
+        <Text style={styles.subtitle}>Let's try loading the game again!</Text>
+        <TouchableOpacity 
+          style={[styles.nextBtn, { marginTop: 20 }]} 
+          onPress={fetchRandomGame}
+        >
+          <Text style={styles.btnText}>🔄 Try Again</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   const question = questionIndex === 1 ? currentGame.q1 : currentGame.q2;
   const questionAudio = questionIndex === 1 ? currentGame.q1_audio : currentGame.q2_audio;
-  const answers =
-    questionIndex === 1
-      ? {
-          correct: currentGame.a1.correct,
-          incorrect: currentGame.a1.incorrect,
-          audio: currentGame.a1_audio,
-        }
-      : {
-          correct: currentGame.a2.correct,
-          incorrect: currentGame.a2.incorrect,
-          audio: currentGame.a2_audio,
-        };
-  const options = shuffleArray([answers.correct, ...answers.incorrect]);
+  const answers = questionIndex === 1
+    ? { 
+        correct: currentGame.a1?.correct || '', 
+        incorrect: currentGame.a1?.incorrect || [], 
+        audio: currentGame.a1_audio || '' 
+      }
+    : { 
+        correct: currentGame.a2?.correct || '', 
+        incorrect: currentGame.a2?.incorrect || [], 
+        audio: currentGame.a2_audio || '' 
+      };
 
   return (
     <View style={styles.container}>
+      <TouchableOpacity 
+        style={styles.backButton} 
+        onPress={() => navigation.navigate('ApraxiaHomeScreen')}
+      >
+        <Ionicons name="arrow-back" size={28} color="#333" />
+      </TouchableOpacity>
+
+      <View style={styles.progressContainer}>
+        <Text style={styles.progressText}>
+          🏆 Completed Games: {completedGames}/10
+        </Text>
+        <View style={styles.progressBar}>
+          <View 
+            style={[
+              styles.progressFill, 
+              { width: `${(completedGames / 10) * 100}%` }
+            ]} 
+          />
+        </View>
+      </View>
+
       <Text style={styles.title}>📖 Story Time!</Text>
       <Text style={styles.text}>{currentGame.story}</Text>
-      <TouchableOpacity style={styles.audioBtn} onPress={() => playSound(currentGame.story_audio)}>
-        <Text style={styles.btnText}>▶️ Hear the Story</Text>
+      <TouchableOpacity 
+        style={[styles.audioBtn, isPlayingAudio && styles.disabledButton]} 
+        onPress={() => playSound(currentGame.story_audio)}
+        disabled={isPlayingAudio}
+      >
+        <Text style={styles.btnText}>
+          {isPlayingAudio ? '🔊 Playing...' : '▶️ Hear the Story'}
+        </Text>
       </TouchableOpacity>
 
       <Text style={styles.title}>❓ Let's Answer a Question</Text>
       <Text style={styles.question}>{question}</Text>
-      <TouchableOpacity style={styles.audioBtn} onPress={() => playSound(questionAudio)}>
-        <Text style={styles.btnText}>🔊 Play Question</Text>
+      <TouchableOpacity 
+        style={[styles.audioBtn, isPlayingAudio && styles.disabledButton]} 
+        onPress={() => playSound(questionAudio)}
+        disabled={isPlayingAudio}
+      >
+        <Text style={styles.btnText}>
+          {isPlayingAudio ? '🔊 Playing...' : '🔊 Play Question'}
+        </Text>
       </TouchableOpacity>
 
       <View style={styles.answerHeader}>
         <Text style={styles.title}>📝 Choose Your Answer:</Text>
-        <TouchableOpacity style={styles.audioPlaySmall} onPress={() => playSound(answers.audio)}>
+        <TouchableOpacity
+          style={[styles.audioPlaySmall, (!hasAnswered || isPlayingAudio) && styles.disabledButton]}
+          onPress={() => hasAnswered && playSound(answers.audio)}
+          disabled={!hasAnswered || isPlayingAudio}
+        >
           <Text style={styles.audioIcon}>🔊</Text>
         </TouchableOpacity>
       </View>
 
       {options.map((option, idx) => (
         <View key={idx} style={styles.answerRow}>
-          <TouchableOpacity style={styles.option} onPress={() => handleAnswer(option, answers.correct)}>
-            <Text style={styles.optionText}>{option}</Text>
+          <TouchableOpacity
+            style={[
+              styles.option,
+              selectedAnswer === option && styles.selectedOption,
+              hasAnswered && selectedAnswer !== option && styles.disabledOption
+            ]}
+            onPress={() => handleAnswer(option, answers.correct)}
+            disabled={hasAnswered && selectedAnswer !== option}
+          >
+            <Text style={[
+              styles.optionText,
+              selectedAnswer === option && styles.selectedOptionText
+            ]}>
+              {option}
+            </Text>
           </TouchableOpacity>
         </View>
       ))}
@@ -168,11 +305,11 @@ export default function AOSGameScreen() {
       )}
     </View>
   );
-}
+};
 
-const shuffleArray = (array: string[]) => {
+const shuffleArray = (array: string[]): string[] => {
   return array
-    .map((value) => ({ value, sort: Math.random() }))
+    .map(value => ({ value, sort: Math.random() }))
     .sort((a, b) => a.sort - b.sort)
     .map(({ value }) => value);
 };
@@ -273,4 +410,54 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 15,
   },
+  backButton: {
+    position: 'absolute',
+    top: 40,
+    left: 20,
+    zIndex: 10,
+  },
+  disabledButton: {
+    opacity: 0.5,
+  },
+  disabledOption: {
+    opacity: 0.5,
+  },
+  selectedOption: {
+    backgroundColor: '#4CAF50',
+  },
+  selectedOptionText: {
+    color: '#fff',
+  },
+  progressContainer: {
+    marginTop: 60,
+    marginBottom: 20,
+    padding: 15,
+    backgroundColor: '#fff',
+    borderRadius: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  progressText: {
+    fontSize: 18,
+    color: '#ff6f61',
+    fontWeight: 'bold',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  progressBar: {
+    height: 10,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 5,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#4CAF50',
+    borderRadius: 5,
+  },
 });
+
+export default AOSGameScreen;

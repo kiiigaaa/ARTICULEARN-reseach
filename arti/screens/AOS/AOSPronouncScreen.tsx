@@ -1,21 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, Image, TouchableOpacity, StyleSheet, Modal,
-  ActivityIndicator, Alert
+  ActivityIndicator, Alert, Animated
 } from 'react-native';
 import { db } from '../../database/firebaseConfig';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, addDoc } from 'firebase/firestore';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
+import * as Speech from 'expo-speech';
 import { Audio } from 'expo-av';
 
-type Word = {
+interface Word {
   id: string;
   word: string;
   ipa: string;
   pronunciation: string;
   image: string;
-};
+}
 
 const LOCAL_SERVER_URL = 'http://172.20.10.4:5000/predict-apra';
 
@@ -26,9 +27,13 @@ const PronouncScreen = ({ navigation }: any) => {
   const [loading, setLoading] = useState(true);
   const [showInfo, setShowInfo] = useState(false);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [canProceed, setCanProceed] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [transcription, setTranscription] = useState("");
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [recordingTimer, setRecordingTimer] = useState<NodeJS.Timeout | null>(null);
+  const bounceAnim = new Animated.Value(1);
 
   useEffect(() => {
     const fetchWords = async () => {
@@ -36,64 +41,91 @@ const PronouncScreen = ({ navigation }: any) => {
         const snapshot = await getDocs(collection(db, 'aosWords'));
         const fetchedWords = snapshot.docs.map((doc) => ({
           id: doc.id,
-          ...(doc.data() as Omit<Word, 'id'>),
-        }));
-        const shuffledWords = fetchedWords.sort(() => Math.random() - 0.5);
-        setAosWords(shuffledWords);
+          ...doc.data()
+        })) as Word[];
+        setAosWords(fetchedWords.sort(() => Math.random() - 0.5));
         setLoading(false);
       } catch (err) {
         console.error('❌ Error fetching data:', err);
         setLoading(false);
       }
     };
-
     fetchWords();
   }, []);
 
+  const startBounceAnimation = () => {
+    Animated.sequence([
+      Animated.timing(bounceAnim, {
+        toValue: 1.1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(bounceAnim, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
   const sendAudioToServer = async (audioUri: string, word: string) => {
+    setIsProcessing(true);
     try {
-      const filename = audioUri.split('/').pop() || 'audio.m4a';
-      const fileType = filename.endsWith('.mp3') ? 'audio/mpeg' : 'audio/m4a';
+      const filename = audioUri.split('/').pop() || 'recording.m4a';
 
       const formData = new FormData();
       formData.append('word', word);
       formData.append('audio', {
         uri: audioUri,
         name: filename,
-        type: fileType,
+        type: 'audio/m4a',
       } as any);
 
       const response = await fetch(LOCAL_SERVER_URL, {
         method: 'POST',
         body: formData,
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
 
       const result = await response.json();
+      const safeTranscription = result.transcription ?? "Unknown";
+      setTranscription(safeTranscription);
 
-      if (result.predicted === 'Apraxia') {
-        setFeedback('Try again, you can do it!');
+      let feedbackMessage = null;
+      const isApraxia = result.predicted === 'Apraxia';
+
+      if (isApraxia) {
+        feedbackMessage = result.word_match === false
+          ? `Oops! That's not quite right. Try saying "${word}" again! 🎯`
+          : 'Keep practicing! You can do it! 🌟';
         setCanProceed(false);
       } else {
-        setFeedback(null);
+        feedbackMessage = 'Great job! You said it perfectly! 🎉';
         setCanProceed(true);
       }
 
-      Alert.alert('🧠 Result', `Prediction: ${result.predicted}\nConfidence: ${result.confidence}`);
+      setFeedback(feedbackMessage);
+      startBounceAnimation();
+
+      await addDoc(collection(db, "attempts"), {
+        word,
+        transcription: safeTranscription,
+        predicted: result.predicted ?? "Unknown",
+        confidence: result.confidence ?? 0,
+        status: result.predicted ?? "Unknown",
+        timestamp: new Date().toISOString(),
+      });
+
     } catch (error) {
       console.error('❌ Error uploading audio:', error);
-      Alert.alert('Upload Failed', 'Could not send audio to the server.');
+      Alert.alert('Oops!', 'Something went wrong. Let\'s try again! 🎮');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   const handleUpload = async () => {
-    const result = await DocumentPicker.getDocumentAsync({
-      type: 'audio/*',
-      copyToCacheDirectory: true,
-    });
-
+    const result = await DocumentPicker.getDocumentAsync({ type: 'audio/*' });
     if (result.assets && result.assets.length > 0) {
       const file = result.assets[0];
       Alert.alert("✅ Audio Uploaded", `You selected: ${file.name}`);
@@ -104,38 +136,59 @@ const PronouncScreen = ({ navigation }: any) => {
   };
 
   const handleRecord = async () => {
-    Alert.alert("⚠️ Under Development", "Recording feature is under development.");
-  };
-
-  const stopRecording = async () => {
-    if (!recording) return;
-
     try {
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
-      const { sound } = await recording.createNewLoadedSoundAsync();
-      setSound(sound);
-      await sound.playAsync();
-      setRecording(null);
-      Alert.alert("✅ Recording Complete", `Saved at: ${uri}`);
-      if (uri && currentWord?.word) {
-        await sendAudioToServer(uri, currentWord.word);
+      const permission = await Audio.requestPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("Hey there!", "We need your permission to use the microphone. Can you help us with that? 🎤");
+        return;
+      }
+
+      if (recording) {
+        if (recordingTime < 1) {
+          Alert.alert("Too Short!", "Please speak a bit longer! 🗣️");
+          return;
+        }
+        if (recordingTimer) clearInterval(recordingTimer);
+        setRecordingTimer(null);
+        setRecordingTime(0);
+        await recording.stopAndUnloadAsync();
+        const uri = recording.getURI();
+        setRecording(null);
+        if (uri && currentWord?.word) {
+          await sendAudioToServer(uri, currentWord.word);
+        }
+      } else {
+        await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+        const newRecording = new Audio.Recording();
+        await newRecording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+        await newRecording.startAsync();
+        setRecording(newRecording);
+        
+        const timer = setInterval(() => {
+          setRecordingTime(prev => prev + 1);
+        }, 1000);
+        setRecordingTimer(timer);
+        
+        Alert.alert("Ready, Set, Go!", "Speak now! Tap again when you're done. 🎯");
       }
     } catch (error) {
-      console.error("❌ Failed to stop recording:", error);
+      console.error("🎤 Recording error:", error);
+      Alert.alert("Oops!", "Something went wrong with the recording. Let's try again! 🎮");
+    }
+  };
+
+  const speakWord = () => {
+    if (currentWord?.word) {
+      Speech.speak(currentWord.word, { language: 'en-US', rate: 0.8 });
     }
   };
 
   const handleSpeakOptions = () => {
-    Alert.alert(
-      "Choose an Option",
-      "How would you like to provide speech?",
-      [
-        { text: "Upload from Device", onPress: handleUpload },
-        { text: "Record", onPress: handleRecord },
-        { text: "Cancel", style: "cancel" }
-      ]
-    );
+    Alert.alert("Choose an Option", "How would you like to provide speech?", [
+      { text: "Upload from Device", onPress: handleUpload },
+      { text: recording ? "Stop Recording" : "Record", onPress: handleRecord },
+      { text: "Cancel", style: "cancel" }
+    ]);
   };
 
   const handleNext = () => {
@@ -144,6 +197,7 @@ const PronouncScreen = ({ navigation }: any) => {
       setShowInfo(false);
       setCanProceed(false);
       setFeedback(null);
+      setTranscription("");
     } else {
       setModalVisible(false);
     }
@@ -155,15 +209,13 @@ const PronouncScreen = ({ navigation }: any) => {
       setShowInfo(false);
       setCanProceed(false);
       setFeedback(null);
+      setTranscription("");
     }
   };
 
   const handleBack = () => {
-    if (navigation.canGoBack()) {
-      navigation.goBack();
-    } else {
-      navigation.navigate('ApraxiaHomeScreen');
-    }
+    if (navigation.canGoBack()) navigation.goBack();
+    else navigation.navigate('ApraxiaHomeScreen');
   };
 
   const currentWord = aosWords[currentIndex];
@@ -180,7 +232,7 @@ const PronouncScreen = ({ navigation }: any) => {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>AOS Kids Game</Text>
-      <Text style={styles.subtitle}>Learn words the fun way!</Text>
+      <Text style={styles.subtitle}>Learn words the fun way! 🎮</Text>
 
       <Modal visible={modalVisible} animationType="slide">
         <View style={styles.modalView}>
@@ -190,34 +242,52 @@ const PronouncScreen = ({ navigation }: any) => {
 
           {currentWord && (
             <>
-              <View style={styles.imageFrame}>
+              <Animated.View style={[styles.imageFrame, { transform: [{ scale: bounceAnim }] }]}>
                 <Image source={{ uri: currentWord.image }} style={styles.image} />
-              </View>
+              </Animated.View>
               <Text style={styles.word}>{currentWord.word.toUpperCase()}</Text>
 
               <View style={styles.buttonRow}>
-                <TouchableOpacity style={styles.actionButton} onPress={handleSpeakOptions}>
+                <TouchableOpacity 
+                  style={[styles.actionButton, recording && styles.recordingButton]} 
+                  onPress={handleSpeakOptions}
+                >
                   <Ionicons name="mic" size={28} color="#fff" />
-                  <Text style={styles.buttonText}>{recording ? "Stop" : "Speak"}</Text>
+                  <Text style={styles.buttonText}>
+                    {recording ? `Recording... ${recordingTime}s` : "Speak"}
+                  </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity style={styles.infoButton} onPress={() => setShowInfo(!showInfo)}>
-                  <Ionicons name="information-circle" size={28} color="#fff" />
+                  <Ionicons name={showInfo ? "information-circle" : "information-circle-outline"} size={28} color="#fff" />
                   <Text style={styles.buttonText}>Info</Text>
                 </TouchableOpacity>
               </View>
 
+              {isProcessing && (
+                <View style={styles.processingContainer}>
+                  <ActivityIndicator size="large" color="#61dafb" />
+                  <Text style={styles.processingText}>Listening carefully... 🎧</Text>
+                </View>
+              )}
+
               {showInfo && (
                 <View style={styles.infoBox}>
-                  <Text style={styles.sheetTitle}>IPA:</Text>
+                  <Text style={styles.sheetTitle}>How to say it:</Text>
                   <Text style={styles.sheetText}>/{currentWord.ipa}/</Text>
                   <Text style={styles.sheetTitle}>Pronunciation:</Text>
                   <Text style={styles.sheetText}>{currentWord.pronunciation}</Text>
                 </View>
               )}
 
+              {transcription && (
+                <Text style={styles.transcriptionText}>
+                  🗣️ You said: {transcription}
+                </Text>
+              )}
+
               {feedback && (
-                <Text style={{ color: 'red', marginTop: 10, fontWeight: 'bold' }}>{feedback}</Text>
+                <Text style={styles.feedbackText}>{feedback}</Text>
               )}
 
               <View style={styles.navButtons}>
@@ -382,6 +452,32 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 10,
     color: '#fff',
+  },
+  recordingButton: {
+    backgroundColor: '#ff6b6b',
+  },
+  processingContainer: {
+    marginTop: 20,
+    alignItems: 'center',
+  },
+  processingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#666',
+  },
+  transcriptionText: {
+    color: '#444',
+    fontStyle: 'italic',
+    marginTop: 10,
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  feedbackText: {
+    marginTop: 10,
+    fontWeight: 'bold',
+    fontSize: 16,
+    textAlign: 'center',
+    color: '#4CAF50',
   },
 });
 

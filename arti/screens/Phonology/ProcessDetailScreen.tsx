@@ -1,401 +1,194 @@
+// screens/ProcessDetailScreen.tsx
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Image, ActivityIndicator, Alert, ScrollView } from 'react-native';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  Image,
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+} from 'react-native';
 import { Audio } from 'expo-av';
-import { Ionicons } from '@expo/vector-icons';
+import * as Speech from 'expo-speech';
 import * as Animatable from 'react-native-animatable';
+import { Ionicons } from '@expo/vector-icons';
+import { savePerformanceRecord } from '../../services/practiceService';
+import { Timestamp } from 'firebase/firestore';
+import type { PerformanceRecord } from '../../types/practice';
 
-const ProcessDetailScreen = ({ route, navigation }: any) => {
-  const { process } = route.params;
+const SERVER_URL = 'https://phonerrapp.azurewebsites.net/analyze';
 
-  const [recording, setRecording] = useState<Audio.Recording | null>(null);
-  const [audioURI, setAudioURI] = useState<string | null>(null);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [feedback, setFeedback] = useState<string | null>(null);
-  const [chatGPTSuggestions, setChatGPTSuggestions] = useState<string | null>(null);
-  const [currentWordIndex, setCurrentWordIndex] = useState<number>(0);
-  const [wordList, setWordList] = useState<any[]>([]);
-  const [nextButtonEnabled, setNextButtonEnabled] = useState<boolean>(false);
+interface ProcessWord { word: string; image: string; }
+interface Process { name: string; code: string; words: ProcessWord[]; }
+
+export default function ProcessDetailScreen({ route, navigation }: any) {
+  const { process } = route.params as { process: Process };
+
+  const [recording, setRecording]       = useState<Audio.Recording|null>(null);
+  const [audioURI, setAudioURI]         = useState<string|null>(null);
+  const [loading, setLoading]           = useState(false);
+  const [feedback, setFeedback]         = useState<string|null>(null);
+  const [currentIdx, setCurrentIdx]     = useState(0);
+  const [sessionDetails, setDetails]    = useState<any[]>([]);
+  const [sessionWrong, setSessionWrong] = useState(0);
+
+  const wordList = process.words;
+  const current  = wordList[currentIdx];
 
   useEffect(() => {
-    if (process && process.words && Array.isArray(process.words)) {
-      setWordList(process.words);
-    } else {
-      Alert.alert("Error", "No words available for this process.");
-    }
-  }, [process]);
+    if (current) Speech.speak(current.word, { rate: 1.0 });
+  }, [current]);
 
   const startRecording = async () => {
-    try {
-      const permission = await Audio.requestPermissionsAsync();
-      if (permission.status !== 'granted') {
-        Alert.alert("Permission not granted", "Please allow audio recording permission");
-        return;
-      }
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
-      const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-      setRecording(recording);
-    } catch (err) {
-      console.error("Failed to start recording", err);
+    const { status } = await Audio.requestPermissionsAsync();
+    if (status !== 'granted') {
+      return Alert.alert('Microphone access denied', 'Please enable it in settings.');
     }
+    await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+    const { recording } = await Audio.Recording.createAsync(Audio.RECORDING_OPTIONS_PRESET_HIGH_QUALITY);
+    setRecording(recording);
   };
 
   const stopRecording = async () => {
     if (!recording) return;
-    try {
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
-      setAudioURI(uri);
-      setRecording(null);
-    } catch (err) {
-      console.error("Failed to stop recording", err);
-    }
+    await recording.stopAndUnloadAsync();
+    setAudioURI(recording.getURI());
+    setRecording(null);
   };
 
-  const handleAnalysis = async () => {
+  const analyzeWord = async () => {
     if (!audioURI) return;
     setLoading(true);
     try {
-      const expectedWord = wordList[currentWordIndex]?.word;
-      if (!expectedWord) {
-        setFeedback("No word available to analyze.");
-        setLoading(false);
-        return;
-      }
+      const form = new FormData();
+      form.append('file', { uri: audioURI, name: 'utt.wav', type: 'audio/wav' } as any);
+      form.append('transcript', current.word);
 
-      const transcription = await transcribeAudioWithWhisper(audioURI);
-      const feedbackFromModel = await getModelFeedback(audioURI, expectedWord);
+      const res  = await fetch(SERVER_URL, { method: 'POST', body: form });
+      const json = await res.json() as {
+        details: any[];
+        summary: {
+          total_phonemes: number;
+          substitutions: number;
+          deletions: number;
+          insertions: number;
+          error_rate: number;
+          has_disorder: boolean;
+        };
+      };
 
-      // Combine both transcription and model feedback
-      const transcriptionIsCorrect = transcription.toLowerCase().includes(expectedWord.toLowerCase());
-      const modelFeedbackIsCorrect = feedbackFromModel?.["Overall Classification"]?.includes("Correct pronunciation");
-
-      if (transcriptionIsCorrect && modelFeedbackIsCorrect) {
-        setFeedback("Well done! Your pronunciation is perfect.");
-        setNextButtonEnabled(true);
+      const s = json.summary;
+      if (!s.has_disorder) {
+        setFeedback('Perfect pronunciation!');
       } else {
-        let formattedFeedback = "";
-        if (!transcriptionIsCorrect) {
-          formattedFeedback += `The transcription didn’t match the expected word.\n`;
-        }
-        if (feedbackFromModel?.Omission) {
-          formattedFeedback += `Omission: The word might be missing some sounds.\n`;
-        }
-        if (feedbackFromModel?.Substitution) {
-          formattedFeedback += `Substitution: You might have used the wrong sound for part of the word.\n`;
-        }
-        if (feedbackFromModel?.VowelChange) {
-          formattedFeedback += `Vowel Change: Make sure the vowels are correct.\n`;
-        }
-
-        setFeedback(formattedFeedback);
-
-        const chatGPTResponse = await getChatGPTSuggestions(transcription, expectedWord, formattedFeedback);
-        setChatGPTSuggestions(chatGPTResponse.analysis);
-        setNextButtonEnabled(false);
+        setFeedback(
+          `Substitutions: ${s.substitutions}\n` +
+          `Deletions: ${s.deletions}\n` +
+          `Error rate: ${(s.error_rate * 100).toFixed(0)}%`
+        );
+        setSessionWrong(w => w + 1);
       }
-    } catch (error) {
-      console.error("Error analyzing pronunciation:", error);
-      setFeedback("Something went wrong while analyzing your pronunciation.");
-    }
-    setLoading(false);
-  };
 
-  const transcribeAudioWithWhisper = async (audioURI: string): Promise<string> => {
-    try {
-      let formData = new FormData();
-      formData.append('file', {
-        uri: audioURI,
-        name: 'audio.m4a',
-        type: 'audio/m4a',
-      });
-      formData.append('model', 'whisper-1');
-
-      const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer YOUR_OPENAI_API_KEY`,
-          "Content-Type": "multipart/form-data",
-        },
-        body: formData,
-      });
-
-      const data = await response.json();
-      if (data.error) {
-        throw new Error(data.error);
-      }
-      return data.text || "";
-    } catch (error) {
-      console.error("Error transcribing audio:", error);
-      return "";
+      setDetails(d => [...d, { word: current.word, summary: s, details: json.details }]);
+    } catch {
+      Alert.alert('Analysis failed', 'Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const getModelFeedback = async (audioURI: string, word: string) => {
-    try {
-      let formData = new FormData();
-      formData.append('audio', {
-        uri: audioURI,
-        name: 'audio.m4a',
-        type: 'audio/m4a',
-      });
-      formData.append('word', word);
+  const onNext = async () => {
+    setFeedback(null);
+    setAudioURI(null);
 
-      const response = await fetch("http://172.20.10.4:5000/upload", {
-        method: 'POST',
-        body: formData,
-      });
-
-      const data = await response.json();
-
-      if (data.feedback) {
-        const feedback = data.feedback;
-
-        let formattedFeedback = {};
-        if (feedback.Omission) {
-          formattedFeedback.Omission = feedback.Omission;
-        }
-        if (feedback.Substitution) {
-          formattedFeedback.Substitution = feedback.Substitution;
-        }
-        if (feedback.VowelChange) {
-          formattedFeedback.VowelChange = feedback.VowelChange;
-        }
-        if (feedback['Overall Classification']) {
-          formattedFeedback['Overall Classification'] = feedback['Overall Classification'];
-        }
-
-        return formattedFeedback;
-      }
-
-      throw new Error("No feedback received from model.");
-    } catch (error) {
-      console.error("Error getting feedback from model:", error);
-      return "Error in feedback";
-    }
-  };
-
-  const getChatGPTSuggestions = async (transcription: string, expectedWord: string, modelFeedback: string) => {
-    try {
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `API_KEY`,
-        },
-        body: JSON.stringify({
-          model: "gpt-4",
-          messages: [
-            {
-              role: "system",
-              content: "You are a friendly and supportive speech therapist."
-            },
-            {
-              role: "user",
-              content: `Here's a transcription: "${transcription}". The expected word is "${expectedWord}". Model feedback: "${modelFeedback}". Can you help me with improving the pronunciation or confirm if it’s correct? Please provide a simple tip for how to say the word better. also it only should be a simple analysiz result and a simple one prase tip.`
-            }
-          ],
-          temperature: 0.7,
-          max_tokens: 150,
-        }),
-      });
-
-      const data = await response.json();
-      if (data.error) {
-        throw new Error(data.error);
-      }
-
-      const analysis = data.choices[0].message.content.trim();
-      const [finalAnalysis, tip] = analysis.split("\n"); // Split into analysis and tip (assuming they're separated by a newline)
-      return { finalAnalysis, tip };
-
-    } catch (error) {
-      console.error("Error analyzing with ChatGPT:", error);
-      return { analysis: "Something went wrong while analyzing the pronunciation." };
-    }
-  };
-
-  const nextWord = () => {
-    if (currentWordIndex < wordList.length - 1) {
-      setCurrentWordIndex(currentWordIndex + 1);
-      setFeedback(null);
-      setAudioURI(null);
+    if (currentIdx < wordList.length - 1) {
+      setCurrentIdx(i => i + 1);
     } else {
-      navigation.navigate("NextScreen");
+      const summary = {
+        total_phonemes: wordList.length,
+        substitutions: sessionWrong,
+        deletions: 0,
+        insertions: 0,
+        error_rate: sessionWrong / wordList.length,
+        has_disorder: sessionWrong / wordList.length >= 0.5,
+      };
+      const rec: Omit<PerformanceRecord,'id'> = {
+        userId: 'child123',
+        activity: 'PhonologicalProcess',
+        timestamp: Timestamp.now(),
+        summary,
+        details: sessionDetails,
+      };
+      await savePerformanceRecord(rec);
+      Alert.alert('Session complete', 'Your progress has been recorded.', [
+        { text: 'Back', onPress: () => navigation.goBack() }
+      ]);
     }
   };
-
-  const currentWord = wordList[currentWordIndex];
 
   return (
-    <ScrollView contentContainerStyle={styles.scrollContainer}>
-      <View style={styles.container}>
-        {currentWord && (
-          <>
-            <Text style={styles.title}>{process.name} - {process.code}</Text>
-            <Image source={{ uri: currentWord.image }} style={styles.image} />
-            <Text style={styles.word}>{currentWord.word}</Text>
-          </>
-        )}
+    <ScrollView contentContainerStyle={styles.scroll}>
+      <View style={styles.card}>
+        <Text style={styles.header}>{process.name} ({process.code})</Text>
+        <Image source={{ uri: current.image }} style={styles.image}/>
+        <Text style={styles.word}>{current.word}</Text>
 
-        <View style={styles.buttonRow}>
+        <View style={styles.controls}>
           {!recording ? (
-            <TouchableOpacity style={styles.recordButton} onPress={startRecording}>
-              <Ionicons name="mic" size={40} color="white" />
-              <Text style={styles.buttonText}>Start Recording</Text>
+            <TouchableOpacity style={[styles.button, styles.recordBtn]} onPress={startRecording}>
+              <Ionicons name="mic-outline" size={28} color="#fff" />
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity style={styles.stopButton} onPress={stopRecording}>
-              <Ionicons name="stop-circle" size={40} color="white" />
-              <Text style={styles.buttonText}>Stop Recording</Text>
+            <TouchableOpacity style={[styles.button, styles.stopBtn]} onPress={stopRecording}>
+              <Ionicons name="stop-circle-outline" size={28} color="#fff" />
             </TouchableOpacity>
           )}
+
+          {audioURI && !loading && (
+            <TouchableOpacity style={[styles.button, styles.analyzeBtn]} onPress={analyzeWord}>
+              <Ionicons name="analytics-outline" size={28} color="#fff" />
+            </TouchableOpacity>
+          )}
+          {loading && <ActivityIndicator style={styles.loader} size="large" color="#3386F2" />}
         </View>
 
-        {audioURI && !loading && (
-          <TouchableOpacity style={styles.analyzeButton} onPress={handleAnalysis}>
-            <Text style={styles.buttonText}>Analyze</Text>
-          </TouchableOpacity>
-        )}
-
-        {loading && <ActivityIndicator size="large" color="#FF7043" style={styles.loadingIndicator} />}
-
         {feedback && (
-          <Animatable.View animation="fadeInUp" style={styles.resultContainer}>
-            <Text style={styles.resultText}>{feedback}</Text>
-          </Animatable.View>
-        )}
-
-        {chatGPTSuggestions && (
-          <Animatable.View animation="fadeInUp" style={styles.chatGPTContainer}>
-            <Text style={styles.chatGPTAnalysis}>{chatGPTSuggestions.finalAnalysis}</Text>
-            <Text style={styles.chatGPTTip}>{chatGPTSuggestions.tip}</Text>
+          <Animatable.View animation="fadeInUp" style={styles.feedbackBox}>
+            <Text style={styles.feedback}>{feedback}</Text>
           </Animatable.View>
         )}
 
         {feedback && (
-          <TouchableOpacity
-            style={[styles.nextButton, { opacity: nextButtonEnabled ? 1 : 0.5 }]}
-            onPress={nextWord}
-            disabled={!nextButtonEnabled}>
-            <Text style={styles.buttonText}>
-              {currentWordIndex < wordList.length - 1 ? "Next Word" : "Finish"}
-            </Text>
+          <TouchableOpacity style={[styles.button, styles.nextBtn]} onPress={onNext}>
+            <Ionicons name="arrow-forward-circle-outline" size={28} color="#fff" />
           </TouchableOpacity>
         )}
       </View>
     </ScrollView>
   );
-};
+}
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#FFF8F0",  // Off-white background
-    padding: 20,
+  scroll:    { flexGrow:1, backgroundColor:'#FDFDFD', justifyContent:'center', padding:16 },
+  card:      { backgroundColor:'#fff', borderRadius:16, padding:20, alignItems:'center', elevation:3 },
+  header:    { fontSize:18, fontWeight:'600', color:'#333', marginBottom:12 },
+  image:     { width:120, height:120, borderRadius:12, marginBottom:12 },
+  word:      { fontSize:22, fontWeight:'bold', color:'#222', marginBottom:20 },
+  controls:  { flexDirection:'row', alignItems:'center', marginBottom:20 },
+  button:    { padding:14, borderRadius:30, marginHorizontal:8, elevation:2 },
+  recordBtn: { backgroundColor:'#4CAF50' },
+  stopBtn:   { backgroundColor:'#E53935' },
+  analyzeBtn:{ backgroundColor:'#FFA000' },
+  nextBtn:   { backgroundColor:'#3386F2' },
+  loader:    { marginHorizontal:16 },
+  feedbackBox:{
+    width:'100%',
+    backgroundColor:'#E3F2FD',
+    padding:16,
+    borderRadius:12,
+    marginBottom:12,
   },
-  scrollContainer: {
-    flexGrow: 1,
-    paddingBottom: 20,
-  },
-  title: {
-    fontSize: 26,
-    fontWeight: "bold",
-    color: "#3386F2",  // Blue
-    marginBottom: 20,
-  },
-  image: {
-    width: 150,
-    height: 150,
-    marginBottom: 20,
-    borderRadius: 10,
-  },
-  word: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#3386F2",  // Blue
-    marginBottom: 20,
-  },
-  buttonRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    marginBottom: 20,
-  },
-  recordButton: {
-    backgroundColor: "#3386F2",  // Blue
-    paddingVertical: 15,
-    paddingHorizontal: 30,
-    borderRadius: 10,
-    marginRight: 10,
-    alignItems: "center",
-  },
-  stopButton: {
-    backgroundColor: "#F44336",  // Red
-    paddingVertical: 15,
-    paddingHorizontal: 30,
-    borderRadius: 10,
-    marginLeft: 10,
-    alignItems: "center",
-  },
-  analyzeButton: {
-    backgroundColor: "#4CAF50",  // Green
-    paddingVertical: 15,
-    paddingHorizontal: 30,
-    borderRadius: 10,
-    marginTop: 20,
-    alignItems: "center",
-  },
-  buttonText: {
-    color: "#fff",
-    fontWeight: "bold",
-  },
-  loadingIndicator: {
-    marginTop: 20,
-  },
-  resultContainer: {
-    marginTop: 30,
-    padding: 20,
-    backgroundColor: "#FFF3E0",  // Light yellow
-    borderRadius: 10,
-    width: "100%",
-    alignItems: "center",
-  },
-  resultText: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#FF5722",  // Orange
-  },
-  nextButton: {
-    backgroundColor: "#81C784",  // Light Green
-    paddingVertical: 15,
-    paddingHorizontal: 30,
-    borderRadius: 10,
-    marginTop: 20,
-    alignItems: "center",
-  },
-  chatGPTContainer: {
-    marginTop: 30,
-    padding: 20,
-    backgroundColor: "#D1E8E2",  // Light teal
-    borderRadius: 10,
-    width: "100%",
-    alignItems: "center",
-  },
-  chatGPTAnalysis: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#3386F2",  // Blue
-  },
-  chatGPTTip: {
-    fontSize: 16,
-    fontWeight: "normal",
-    color: "#FF5722",  // Orange
-    marginTop: 10,
-  },
+  feedback: { color:'#0D47A1', fontSize:16, textAlign:'center' },
 });
-
-export default ProcessDetailScreen;

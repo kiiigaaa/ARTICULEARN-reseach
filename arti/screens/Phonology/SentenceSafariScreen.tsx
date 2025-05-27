@@ -1,3 +1,4 @@
+// screens/SentenceSafariScreen.tsx
 import React, { useState } from "react";
 import {
   View,
@@ -12,9 +13,7 @@ import {
 import * as Animatable from "react-native-animatable";
 import { Audio } from "expo-av";
 import * as Speech from "expo-speech";
-import RescueScene, {
-  RescueTrigger,
-} from "./SentenceSafariComponents/RescueScene";
+import RescueScene, { RescueTrigger } from "./SentenceSafariComponents/RescueScene";
 import { savePerformanceRecord } from "../../services/practiceService";
 import { PerformanceRecord } from "../../types/practice";
 import { Timestamp } from "firebase/firestore";
@@ -46,15 +45,15 @@ const guideImages = {
 };
 const animalImages = [
   require("../../assets/monkey.png"),
-  require("../../assets/monkey.png"),
-  require("../../assets/monkey.png"),
-  require("../../assets/monkey.png"),
-  require("../../assets/monkey.png"),
+  require("../../assets/parrots.png"),
+  require("../../assets/elephant.png"),
+  require("../../assets/tiger.png"),
+  require("../../assets/zebra.png"),
 ];
-const SERVER_URL = "https://phonerrapp.azurewebsites.net/analyze"; // <-- Update to your server URL
+const SERVER_URL = "https://phonerrapp.azurewebsites.net/analyze";
 const TOTAL = sentences.length;
 
-export default function SentenceSafariScreen({ navigation }: any) {
+export default function SentenceSafariScreen({ route, navigation }: any) {
   const [index, setIndex] = useState(0);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [processing, setProcessing] = useState(false);
@@ -63,11 +62,15 @@ export default function SentenceSafariScreen({ navigation }: any) {
   const [perfId, setPerfId] = useState<string | null>(null);
 
   const current = sentences[index];
+  const { tier } = route.params;
 
   const goNext = () => {
     setAnalysis(null);
-    if (index < TOTAL - 1) setIndex(index + 1);
-    else navigation.navigate("TherapyCatalogue");
+    if (index < TOTAL - 1) {
+      setIndex(index + 1);
+    } else {
+      navigation.navigate("TherapyCatalogue", { tier });
+    }
   };
 
   if (analysis && rescueTrigger === "correct") {
@@ -103,7 +106,7 @@ export default function SentenceSafariScreen({ navigation }: any) {
         Audio.RECORDING_OPTIONS_PRESET_HIGH_QUALITY
       );
       setRecording(recording);
-    } catch (e) {
+    } catch {
       Alert.alert("Recording Error", "Failed to start recording.");
     }
   };
@@ -114,15 +117,19 @@ export default function SentenceSafariScreen({ navigation }: any) {
     await recording.stopAndUnloadAsync();
     const uri = recording.getURI()!;
     setRecording(null);
+
     try {
       const form = new FormData();
       form.append("file", { uri, name: `utt.wav`, type: "audio/wav" } as any);
       form.append("transcript", current);
+
       const res = await fetch(SERVER_URL, { method: "POST", body: form });
       const json: AnalysisResult = await res.json();
+
       setAnalysis(json);
       setRescueTrigger(json.summary.has_disorder ? "incorrect" : "correct");
 
+      // save performance
       const perf: Omit<PerformanceRecord, "id"> = {
         userId: "child123",
         activity: "SentenceSafari",
@@ -130,10 +137,9 @@ export default function SentenceSafariScreen({ navigation }: any) {
         summary: json.summary,
         details: json.details,
       };
-
       const newId = await savePerformanceRecord(perf);
       setPerfId(newId);
-    } catch (e) {
+    } catch {
       Alert.alert("Analysis Error", "Something went wrong. Try again.");
     } finally {
       setProcessing(false);
@@ -156,6 +162,15 @@ export default function SentenceSafariScreen({ navigation }: any) {
       source={require("../../assets/safari_bg.png")}
       style={styles.background}
     >
+      {/* Loading overlay */}
+      {processing && (
+        <View style={styles.loadingOverlay}>
+          <Animatable.View animation="pulse" iterationCount="infinite">
+            <ActivityIndicator size="large" color="#2E7D32" />
+          </Animatable.View>
+        </View>
+      )}
+
       <View style={styles.header}>
         <Text style={styles.title}>Sentence Safari</Text>
         <View style={styles.progressBar}>
@@ -165,6 +180,7 @@ export default function SentenceSafariScreen({ navigation }: any) {
           {index + 1} / {TOTAL}
         </Text>
       </View>
+
       <View style={styles.scene}>
         <Image
           source={
@@ -178,9 +194,11 @@ export default function SentenceSafariScreen({ navigation }: any) {
         />
         {renderBubble()}
       </View>
+
       <View style={styles.card}>
         <Text style={styles.sentence}>{current}</Text>
       </View>
+
       <View style={styles.controls}>
         <TouchableOpacity
           onPress={speakSentence}
@@ -192,14 +210,12 @@ export default function SentenceSafariScreen({ navigation }: any) {
             style={styles.icon}
           />
         </TouchableOpacity>
-        {processing && (
-          <ActivityIndicator color="#333" style={{ marginHorizontal: 12 }} />
-        )}
+
         {!recording ? (
           <TouchableOpacity
             onPress={startRecording}
             style={styles.iconButton}
-            disabled={processing || !!analysis}
+            disabled={processing || analysis?.summary.has_disorder === false}
           >
             <Image
               source={require("../../assets/record_icon.png")}
@@ -207,17 +223,24 @@ export default function SentenceSafariScreen({ navigation }: any) {
             />
           </TouchableOpacity>
         ) : (
-          <TouchableOpacity onPress={stopAndAnalyze} style={styles.iconButton}>
+          <TouchableOpacity
+            onPress={stopAndAnalyze}
+            style={styles.iconButton}
+            disabled={processing}
+          >
             <Image
               source={require("../../assets/stop_icon.png")}
               style={styles.icon}
             />
           </TouchableOpacity>
         )}
+
         {analysis && perfId && (
           <TouchableOpacity
             style={styles.detailBtn}
-            onPress={() => navigation.navigate("PerformanceDetail", { perfId })}
+            onPress={() =>
+              navigation.navigate("Performance", { perfId })
+            }
           >
             <Text style={styles.detailBtnText}>View Details</Text>
           </TouchableOpacity>
@@ -228,7 +251,14 @@ export default function SentenceSafariScreen({ navigation }: any) {
 }
 
 const styles = StyleSheet.create({
-  background: { flex: 1, padding: 20, backgroundColor: "#E8F5E9" },
+  background: { flex: 1, padding: 20 },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.3)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 10,
+  },
   header: { marginTop: 40, marginBottom: 16, alignItems: "center" },
   title: { fontSize: 26, fontWeight: "bold", color: "#2E7D32" },
   progressBar: {
@@ -251,9 +281,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 2,
     borderColor: "#4CAF50",
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
     elevation: 4,
     maxWidth: "80%",
   },
@@ -262,9 +289,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFF",
     padding: 20,
     borderRadius: 20,
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
     elevation: 5,
   },
   sentence: { fontSize: 22, color: "#2E7D32", textAlign: "center" },
@@ -278,9 +302,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFF",
     padding: 16,
     borderRadius: 50,
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
     elevation: 4,
     marginHorizontal: 12,
   },
@@ -290,13 +311,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 20,
-    alignSelf: "center",
-    marginTop: 16,
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
     elevation: 4,
+    marginLeft: 12,
   },
   detailBtnText: {
     color: "#FFF",

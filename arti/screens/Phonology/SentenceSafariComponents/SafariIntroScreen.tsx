@@ -2,7 +2,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ImageBackground, TouchableOpacity } from 'react-native';
 
-const SafariIntroScreen = ({ navigation }: any) => (
+const SafariIntroScreen = ({ route, navigation }: any) => (
   <ImageBackground
     source={require('../../../assets/jungle_story_bg.png')}
     style={styles.background}
@@ -15,7 +15,7 @@ const SafariIntroScreen = ({ navigation }: any) => (
       </Text>
       <TouchableOpacity
         style={styles.startButton}
-        onPress={() => navigation.replace('SentenceSafari')}
+        onPress={() => navigation.replace('SentenceSafari', { route })}
       >
         <Text style={styles.startText}>Let’s Go!</Text>
       </TouchableOpacity>

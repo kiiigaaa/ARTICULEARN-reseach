@@ -1,10 +1,23 @@
 // screens/InitialDiagnosisScreen.tsx
-import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert, Animated } from 'react-native';
+import React, { useEffect, useState, useRef } from 'react';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  Alert,
+  Animated,
+  ImageBackground,
+  Dimensions
+} from 'react-native';
 import { Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { savePerformanceRecord } from '../../services/practiceService';
+import { Timestamp, doc as docRef, getDoc, setDoc } from 'firebase/firestore';
+import { auth, db } from '../../database/firebaseConfig';
 
+const { width } = Dimensions.get('window');
 const TEST_SENTENCES = [
   "Patty baked a big pie.",
   "Sally saw seven silly snakes.",
@@ -12,323 +25,210 @@ const TEST_SENTENCES = [
   "The quick brown fox jumps over the lazy dog.",
   "Please call Stella."
 ];
+const ANALYZE_URL = 'https://phonerrapp.azurewebsites.net/analyze';
 
-// Replace with your secure API key. For production, never expose your API key on the client.
-const YOUR_OPENAI_API_KEY = "";
-
-const InitialDiagnosisScreen = ({ navigation }: any) => {
-  const [currentIndex, setCurrentIndex] = useState(0);
+export default function InitialDiagnosisScreen({ navigation }: any) {
+  const [index, setIndex] = useState(0);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
-  const [audioURIs, setAudioURIs] = useState<(string | null)[]>([null, null, null, null, null]);
   const [loading, setLoading] = useState(false);
+  const [results, setResults] = useState<any[]>([]);
+  const micAnim = useRef(new Animated.Value(1)).current;
 
-  const micAnimation = useRef(new Animated.Value(1)).current;
-  const animationRef = useRef<Animated.CompositeAnimation | null>(null);
-
-  const [storedTier, setStoredTier] = useState<string | null>(null);
-
+  // Rotate animation for our custom spinner
+  const spinAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    const checkStoredTier = async () => {
-      const savedTier = await AsyncStorage.getItem('severityTier');
-      if (savedTier) {
-        setStoredTier(savedTier);
-      }
-    };
+    if (loading) {
+      Animated.loop(
+        Animated.timing(spinAnim, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        })
+      ).start();
+    } else {
+      spinAnim.stopAnimation();
+      spinAnim.setValue(0);
+    }
+  }, [loading]);
 
-    checkStoredTier();
+  // Skip if already diagnosed
+  useEffect(() => {
+    (async () => {
+      const user = auth.currentUser;
+      if (!user) return;
+      const snap = await getDoc(docRef(db, 'users', user.uid));
+      if (snap.exists()) {
+        const tier = (snap.data() as any).severityTier;
+        if (tier) {
+          navigation.replace('TherapyCatalogue', { tier });
+        }
+      }
+    })();
   }, []);
 
-  useEffect(() => {
-    if (storedTier) {
-      // Automatically navigate to the appropriate tier based on stored data
-      navigation.navigate("TherapyCatalogue", { tier: `tier_${storedTier}` });
-    }
-  }, [storedTier]);
+  const animateMic = () =>
+    Animated.sequence([
+      Animated.timing(micAnim, { toValue: 1.2, duration: 200, useNativeDriver: true }),
+      Animated.timing(micAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
+    ]).start();
 
-  const phonologicalAnalysis = (expectedWord: string, userTranscription: string) => {
-    let analysis = { omissions: [], substitutions: [], vowelChanges: [] };
-
-    for (let i = 0; i < expectedWord.length; i++) {
-      const expectedPhoneme = expectedWord[i];
-      const userPhoneme = userTranscription[i];
-
-      if (!userPhoneme) {
-        analysis.omissions.push(expectedPhoneme); // Missing phoneme
-      } else if (userPhoneme !== expectedPhoneme) {
-        analysis.substitutions.push({ expected: expectedPhoneme, user: userPhoneme }); // Substitution
-      }
-    }
-
-    const vowels = ['a', 'e', 'i', 'o', 'u'];
-    for (let i = 0; i < expectedWord.length; i++) {
-      const expectedChar = expectedWord[i];
-      const userChar = userTranscription[i];
-      if (vowels.includes(expectedChar) && userChar !== expectedChar) {
-        analysis.vowelChanges.push({ expected: expectedChar, user: userChar });
-      }
-    }
-
-    return analysis;
-  };
-
-
-  // Start recording using expo-av
   const startRecording = async () => {
-    try {
-      const permission = await Audio.requestPermissionsAsync();
-      if (permission.status !== 'granted') {
-        Alert.alert("Permission not granted", "Please allow audio recording permission");
-        return;
-      }
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
-      const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-      setRecording(recording);
-    } catch (err) {
-      console.error("Failed to start recording", err);
+    const { status } = await Audio.requestPermissionsAsync();
+    if (status !== 'granted') {
+      return Alert.alert('Microphone permission is required');
     }
+    await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+    const { recording } = await Audio.Recording.createAsync(
+      Audio.RECORDING_OPTIONS_PRESET_HIGH_QUALITY
+    );
+    setRecording(recording);
   };
 
-  // Stop recording and save the URI for the current sentence
   const stopRecording = async () => {
     if (!recording) return;
-    try {
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
-      console.log("Recording stopped and stored at", uri);
-      const updatedURIs = [...audioURIs];
-      updatedURIs[currentIndex] = uri;
-      setAudioURIs(updatedURIs);
-      setRecording(null);
-    } catch (err) {
-      console.error("Failed to stop recording", err);
-    }
+    animateMic();
+    await recording.stopAndUnloadAsync();
+    const uri = recording.getURI()!;
+    setRecording(null);
+    analyzeUtterance(uri);
   };
 
-  // When all sentences are recorded, transcribe each and send to GPT for analysis
-  const handleAnalysis = async () => {
+  const analyzeUtterance = async (uri: string) => {
     setLoading(true);
     try {
-      const transcriptions: string[] = [];
-      for (let i = 0; i < audioURIs.length; i++) {
-        const uri = audioURIs[i];
-        if (!uri) {
-          transcriptions.push("No recording available");
-          continue;
+      const form = new FormData();
+      form.append('file', { uri, name: 'utt.wav', type: 'audio/wav' } as any);
+      form.append('transcript', TEST_SENTENCES[index]);
+      const res = await fetch(ANALYZE_URL, { method: 'POST', body: form });
+      const json = await res.json();
+      setResults(r => [...r, { sentence: TEST_SENTENCES[index], summary: json.summary }]);
+
+      if (index < TEST_SENTENCES.length - 1) {
+        setIndex(i => i + 1);
+      } else {
+        // finalize
+        const all = [...results, { summary: json.summary }];
+        const totalErr = all.reduce((s, r) => s + r.summary.substitutions + r.summary.deletions, 0);
+        const totalPh = all.reduce((s, r) => s + r.summary.total_phonemes, 0);
+        const errRate = totalPh ? totalErr / totalPh : 0;
+        const tier = errRate >= 0.6 ? 'tier_3' : errRate >= 0.3 ? 'tier_2' : 'tier_1';
+
+        await AsyncStorage.setItem('severityTier', tier);
+        const user = auth.currentUser;
+        if (user) {
+          await setDoc(docRef(db, 'users', user.uid), { severityTier: tier }, { merge: true });
         }
-        const transcription = await transcribeAudio(uri);
-        transcriptions.push(transcription);
+
+        const perf = {
+          userId: user?.uid || 'anon',
+          activity: 'InitialDiagnosis',
+          timestamp: Timestamp.now(),
+          severityTier: tier,
+          summary: { error_rate: errRate, total_sessions: TEST_SENTENCES.length },
+          details: all,
+        };
+        await savePerformanceRecord(perf);
+
+        navigation.replace('AnalysisResult', { results: all, severityTier: tier });
       }
-
-      const analysisResults = [];
-      for (let i = 0; i < TEST_SENTENCES.length; i++) {
-        const expectedWord = TEST_SENTENCES[i];
-        const transcription = transcriptions[i] || "";
-
-        const analysis = phonologicalAnalysis(expectedWord, transcription);
-        const errorCount = analysis.omissions.length + analysis.substitutions.length + analysis.vowelChanges.length;
-        let severity = "Mild";
-        if (errorCount > 3) severity = "Moderate";
-        if (errorCount > 5) severity = "Severe";
-
-        analysisResults.push({ analysis, severity });
-      }
-
-      console.log("Analysis results:", analysisResults);
-
-      const result = await analyzePhonologicalDisorder(transcriptions);
-      await AsyncStorage.setItem('severityTier', result.severityTier.toString());
-
-      console.log("Analysis result:", result);
-      navigation.navigate("AnalysisResult", { result });
-      // Navigate based on severity tier returned from analysis
-    //   if (result.severityTier === 1) {
-    //     navigation.navigate("phono");
-    //   } else if (result.severityTier === 2) {
-    //     navigation.navigate("phono");
-    //   } else if (result.severityTier === 3) {
-    //     navigation.navigate("phono");
-    //   } else {
-    //     Alert.alert("Analysis Error", "Could not determine severity tier.");
-    //   }
-    } catch (error) {
-      console.error("Analysis error:", error);
-      Alert.alert("Analysis Error", "An error occurred during analysis.");
-    }
-    setLoading(false);
-  };
-
-  // Calls OpenAI Whisper API to transcribe a given audio file
-  // Update transcribeAudio function:
-const transcribeAudio = async (audioURI: string): Promise<string> => {
-    try {
-      let formData = new FormData();
-      // Use the correct file name and MIME type for m4a recordings
-      // @ts-ignore
-      formData.append('file', {
-        uri: audioURI,
-        name: 'audio.m4a',
-        type: 'audio/m4a'
-      });
-      formData.append('model', 'whisper-1');
-  
-      const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${YOUR_OPENAI_API_KEY}`,
-          "Content-Type": "multipart/form-data",
-        },
-        body: formData,
-      });
-  
-      const data = await response.json();
-      console.log("Transcription data:", data);
-      if (data.error) {
-        console.error("Transcription error:", data.error);
-        Alert.alert("Transcription Error", data.error.message);
-        return "";
-      }
-      return data.text || "";
-    } catch (error) {
-      console.error("Error transcribing audio:", error);
-      return "";
+    } catch (e) {
+      console.error(e);
+      Alert.alert('Analysis failed', 'Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
-  
 
-  // Uses GPT to analyze the transcriptions against expected sentences and return a severity tier
-  const analyzePhonologicalDisorder = async (transcriptions: string[]) => {
-    try {
-      let prompt = "You are a speech therapy assistant. Analyze the following sentences for phonological errors. The expected sentences and the user's recordings are as follows:";
-      for (let i = 0; i < TEST_SENTENCES.length; i++) {
-        prompt += `\n\nSentence ${i + 1}:\nExpected: ${TEST_SENTENCES[i]}\nUser: ${transcriptions[i] || "No transcription available"}`;
-      }
-      prompt += "\n\nBased on the differences, determine if the user has a phonological speech disorder and classify the severity into tiers:\n" +
-                "Tier 1: Mild\nTier 2: Moderate\nTier 3: Severe\n\n" +
-                "Return the result in JSON format like: {\"severityTier\": 1, \"analysis\": \"...\"}";
-
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${YOUR_OPENAI_API_KEY}`
-        },
-        body: JSON.stringify({
-          model: "gpt-3.5-turbo",
-          messages: [
-            { role: "system", content: "You are a helpful speech therapy assistant." },
-            { role: "user", content: prompt }
-          ],
-          temperature: 0,
-        })
-      });
-      const data = await response.json();
-      const gptMessage = data.choices[0].message.content;
-      let result;
-      try {
-        result = JSON.parse(gptMessage);
-      } catch (e) {
-        // Fallback in case GPT does not return valid JSON
-        result = { severityTier: 1, analysis: gptMessage };
-      }
-      return result;
-    } catch (error) {
-      console.error("Error analyzing phonological disorder:", error);
-      return { severityTier: 1, analysis: "Analysis error." };
-    }
-  };
+  const spin = spinAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg']
+  });
+  const progress = ((index) / TEST_SENTENCES.length) * width;
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.instruction}>Speak the sentence:</Text>
-      <Text style={styles.sentence}>{TEST_SENTENCES[currentIndex]}</Text>
-  
-      <View style={styles.buttonRow}>
-        <TouchableOpacity onPress={recording ? stopRecording : startRecording}>
-          <Animated.View style={[styles.micButton, { transform: [{ scale: micAnimation }] }]}>
-          <Ionicons name={recording ? "mic" : "mic-off"} size={50} color="#fff" />
+    <ImageBackground
+      source={require('../../assets/bg_diagnosis.jpg')}
+      style={styles.bg}
+      imageStyle={{ opacity: 0.3 }}
+    >
+      <View style={styles.container}>
+        <View style={styles.progressBar}>
+          <View style={[styles.progressFill, { width: progress }]} />
+        </View>
+        <Text style={styles.step}>Step {index + 1} of {TEST_SENTENCES.length}</Text>
+        <Text style={styles.instruction}>“Repeat this sentence”</Text>
+        <View style={styles.sentenceBox}>
+          <Text style={styles.sentence}>{TEST_SENTENCES[index]}</Text>
+        </View>
+
+        <TouchableOpacity
+          onPress={recording ? stopRecording : startRecording}
+          style={styles.micBtn}
+          activeOpacity={0.8}
+        >
+          <Animated.View style={{ transform: [{ scale: micAnim }] }}>
+            <Ionicons
+              name={recording ? 'mic' : 'mic-outline'}
+              size={48}
+              color='#FFF'
+            />
           </Animated.View>
         </TouchableOpacity>
+
+        {loading && (
+          <Animated.View style={{ transform: [{ rotate: spin }], marginTop: 20 }}>
+            <Ionicons name="sync-circle" size={40} color="#5D4037" />
+          </Animated.View>
+        )}
       </View>
-  
-      <TouchableOpacity
-        style={styles.nextButton}
-        onPress={() => {
-          if (currentIndex < TEST_SENTENCES.length - 1) {
-            setCurrentIndex(currentIndex + 1);
-          } else {
-            handleAnalysis();
-          }
-        }}
-        disabled={loading}
-      >
-        <Text style={styles.buttonText}>
-          {currentIndex < TEST_SENTENCES.length - 1 ? "Next" : "Finish"}
-        </Text>
-      </TouchableOpacity>
-  
-      {loading && <Text style={styles.loadingText}>Analyzing...</Text>}
-    </View>
+    </ImageBackground>
   );
-};
+}
 
 const styles = StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: "#FDF6F0", // soft, warm background
-      paddingHorizontal: 25,
-      paddingVertical: 30,
-      justifyContent: "center",
-      alignItems: "center",
-    },
-    instruction: {
-      fontSize: 24,
-      color: "#5A3E36",
-      fontWeight: "600",
-      textAlign: "center",
-      marginBottom: 20,
-    },
-    sentence: {
-      fontSize: 26,
-      color: "#3A6351",
-      fontWeight: "bold",
-      textAlign: "center",
-      marginBottom: 40,
-      lineHeight: 32,
-    },
-    buttonRow: {
-      flexDirection: "row",
-      justifyContent: "center",
-      marginBottom: 30,
-    },
-    micButton: {
-      backgroundColor: "#FF8A80", // playful red
-      padding: 20,
-      borderRadius: 50,
-      elevation: 3,
-    },
-    nextButton: {
-      backgroundColor: "#81C784", // gentle green
-      paddingVertical: 15,
-      paddingHorizontal: 30,
-      borderRadius: 30,
-      alignSelf: "center",
-      marginTop: 20,
-      elevation: 2,
-    },
-    buttonText: {
-      color: "#fff",
-      fontSize: 18,
-      fontWeight: "700",
-      textAlign: "center",
-    },
-    loadingText: {
-      marginTop: 20,
-      fontSize: 20,
-      color: "#3A6351",
-    },
-  });
-
-export default InitialDiagnosisScreen;
+  bg: { flex: 1 },
+  container: {
+    flex: 1,
+    padding: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  progressBar: {
+    height: 6,
+    width: '100%',
+    backgroundColor: '#ECEFF1',
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#4A90E2',
+  },
+  step: { fontSize: 14, color: '#555', marginBottom: 20 },
+  instruction: { fontSize: 20, fontWeight: '600', color: '#333', marginBottom: 12 },
+  sentenceBox: {
+    backgroundColor: '#FFF',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 30,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  sentence: { fontSize: 18, fontWeight: '500', color: '#222', textAlign: 'center', lineHeight: 24 },
+  micBtn: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    backgroundColor: '#FF8A80',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  loader: { marginTop: 16 },
+});

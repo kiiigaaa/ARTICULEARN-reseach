@@ -1,265 +1,139 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, Alert, Animated, ImageBackground } from 'react-native';
-import { Audio } from 'expo-av';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Image,
+  Alert,
+  Animated,
+  ImageBackground,
+  ActivityIndicator
+} from 'react-native';
+import * as Speech from 'expo-speech';
 import * as Animatable from 'react-native-animatable';
+import { Ionicons } from '@expo/vector-icons';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../../database/firebaseConfig';
+import { savePerformanceRecord } from '../../services/practiceService';
+import type { PerformanceRecord } from '../../types/practice';
+import { Timestamp } from 'firebase/firestore';
 
-const challengesByTier: Record<string, Challenge[]> = {
-  tier_1: [
-    {
-      soundClip: require('../../assets/target_sound.mp3'),
-      images: [
-        { id: 1, source: require('../../assets/correct.png'), isCorrect: true },
-        { id: 2, source: require('../../assets/option1.png'), isCorrect: false },
-        { id: 3, source: require('../../assets/option2.png'), isCorrect: false },
-        { id: 4, source: require('../../assets/option3.png'), isCorrect: false },
-      ],
-    },
-    {
-      soundClip: require('../../assets/target_sound.mp3'),
-      images: [
-        { id: 1, source: require('../../assets/correct.png'), isCorrect: true },
-        { id: 2, source: require('../../assets/option1.png'), isCorrect: false },
-        { id: 3, source: require('../../assets/option2.png'), isCorrect: false },
-        { id: 4, source: require('../../assets/option3.png'), isCorrect: false },
-      ],
-    },
-  ],
-  tier_2: [
-    {
-      soundClip: require('../../assets/target_sound.mp3'),
-      images: [
-        { id: 1, source: require('../../assets/correct.png'), isCorrect: true },
-        { id: 2, source: require('../../assets/option1.png'), isCorrect: false },
-        { id: 3, source: require('../../assets/option2.png'), isCorrect: false },
-        { id: 4, source: require('../../assets/option3.png'), isCorrect: false },
-      ],
-    },
-    {
-      soundClip: require('../../assets/target_sound.mp3'),
-      images: [
-        { id: 1, source: require('../../assets/correct.png'), isCorrect: true },
-        { id: 2, source: require('../../assets/option1.png'), isCorrect: false },
-        { id: 3, source: require('../../assets/option2.png'), isCorrect: false },
-        { id: 4, source: require('../../assets/option3.png'), isCorrect: false },
-      ],
-    },
-  ],
-  tier_3: [
-    {
-      soundClip: require('../../assets/target_sound.mp3'),
-      images: [
-        { id: 1, source: require('../../assets/correct.png'), isCorrect: true },
-        { id: 2, source: require('../../assets/option1.png'), isCorrect: false },
-        { id: 3, source: require('../../assets/option2.png'), isCorrect: false },
-        { id: 4, source: require('../../assets/option3.png'), isCorrect: false },
-      ],
-    },
-    {
-      soundClip: require('../../assets/target_sound.mp3'),
-      images: [
-        { id: 1, source: require('../../assets/correct.png'), isCorrect: true },
-        { id: 2, source: require('../../assets/option1.png'), isCorrect: false },
-        { id: 3, source: require('../../assets/option2.png'), isCorrect: false },
-        { id: 4, source: require('../../assets/option3.png'), isCorrect: false },
-      ],
-    },
-  ],
-};
+interface Img { id: number; uri: string; isCorrect: boolean; }
+interface Challenge { text: string; images: Img[]; }
 
-const SoundMatchActivityScreen = ({ navigation, route }: any) => {
+export default function SoundMatchActivityScreen({ navigation, route }: any) {
   const { tier } = route.params;
-  const challenges: Challenge[] =
-    challengesByTier[tier] || challengesByTier['tier_1'];
+  const [challenges, setChallenges] = useState<Challenge[]>([]);
+  const [idx, setIdx] = useState(0);
+  const [feedback, setFeedback] = useState<'correct'|'wrong'|'idle'>('idle');
+  const [wrongCount, setWrongCount] = useState(0);
+  const scale = useRef(new Animated.Value(1)).current;
 
-  const [currentIdx, setCurrentIdx] = useState(0);
-  const [feedback, setFeedback] = useState<'correct' | 'wrong' | ''>('');
-  const soundRef = useRef<Audio.Sound | null>(null);
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-
-  // Configure audio mode once
   useEffect(() => {
-    Audio.setAudioModeAsync({
-      allowsRecordingIOS: false,
-      playsInSilentModeIOS: true,
-      interruptionModeIOS: Audio.INTERRUPTION_MODE_IOS_MIX_WITH_OTHERS,
-      shouldDuckAndroid: true,
-      interruptionModeAndroid: Audio.INTERRUPTION_MODE_ANDROID_DUCK_OTHERS,
-      playThroughEarpieceAndroid: false,
-    });
-  }, []);
-
-  // Auto-play current sound
-  useEffect(() => {
-    playSound();
-  }, [currentIdx]);
-
-  const playSound = async () => {
-    try {
-      if (soundRef.current) {
-        await soundRef.current.unloadAsync();
+    (async() => {
+      try{
+        const snap = await getDoc(doc(db,'sound_match_challenges',tier));
+        if(snap.exists()) setChallenges((snap.data() as any).challenges);
+        else throw new Error();
+      }catch{
+        Alert.alert('Error','Could not load challenges',[{text:'OK',onPress:()=>navigation.goBack()}]);
       }
-      const { sound } = await Audio.Sound.createAsync(
-        challenges[currentIdx].soundClip,
-        { shouldPlay: true }
-      );
-      soundRef.current = sound;
-    } catch (e) {
-      console.error('Error playing sound', e);
-    }
-  };
+    })();
+  },[]);
 
-  const handleSelect = (isCorrect: boolean) => {
-    if (isCorrect) {
+  useEffect(() => {
+    if(!challenges.length) return;
+    setFeedback('idle');
+    Speech.stop();
+    Speech.speak(challenges[idx].text, { rate: 1 });
+  },[idx,challenges]);
+
+  const animate = () =>
+    Animated.sequence([
+      Animated.timing(scale, { toValue: 1.2, duration: 200, useNativeDriver: true }),
+      Animated.timing(scale, { toValue: 1, duration: 200, useNativeDriver: true }),
+    ]).start();
+
+  const handleSelect = (correct: boolean) => {
+    if(feedback !== 'idle') return;
+    if(correct){
       setFeedback('correct');
-      Animated.sequence([
-        Animated.timing(scaleAnim, {
-          toValue: 1.3,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.timing(scaleAnim, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-      ]).start(() => {
-        goNext();
-      });
+      animate();
+      setTimeout(() => goNext(), 600);
     } else {
       setFeedback('wrong');
-      // shake animation via Animated
-      Animated.sequence([
-        Animated.timing(scaleAnim, { toValue: 0.9, duration: 100, useNativeDriver: true }),
-        Animated.timing(scaleAnim, { toValue: 1, duration: 100, useNativeDriver: true }),
-      ]).start();
+      animate();
+      setWrongCount(wc => wc + 1);
     }
   };
 
   const goNext = () => {
-    setFeedback('');
-    if (currentIdx < challenges.length - 1) {
-      setCurrentIdx(currentIdx + 1);
+    if(idx < challenges.length - 1) {
+      setIdx(i => i + 1);
     } else {
-      Alert.alert('Awesome!', 'You completed all challenges!', [
-        { text: 'Back to Catalogue', onPress: () => navigation.goBack() },
-      ]);
+      const total = challenges.length;
+      const subs = wrongCount;
+      const err = total ? subs / total : 0;
+      const summary = {
+        total_phonemes: total,
+        substitutions: subs,
+        deletions: 0,
+        insertions: 0,
+        error_rate: err,
+        has_disorder: err >= 0.5
+      };
+      const rec: Omit<PerformanceRecord,'id'> = {
+        userId: 'child123',
+        activity: 'SoundMatch',
+        timestamp: Timestamp.now(),
+        summary,
+        details: [],
+      };
+      savePerformanceRecord(rec).then(() =>
+        Alert.alert('Session Complete','Your performance is saved',[{text:'OK',onPress:()=>navigation.goBack()}])
+      );
     }
   };
 
-  const { images } = challenges[currentIdx];
+  if(!challenges.length) {
+    return <View style={styles.center}><ActivityIndicator size='large'/></View>;
+  }
+
+  const { images } = challenges[idx];
 
   return (
-    <ImageBackground
-      source={require('../../assets/bg_playful.png')}
-      style={styles.background}
-      resizeMode="cover"
-    >
-      <View style={styles.container}>
-        <Text style={styles.title}>Sound Match - Tier {tier.split('_')[1]}</Text>
-
-        <TouchableOpacity style={styles.replayBtn} onPress={playSound}>
-          <Text style={styles.replayText}>🔊 Replay Sound</Text>
-        </TouchableOpacity>
-
+    <ImageBackground source={require('../../assets/bg_playful.png')} style={styles.bg}>
+      <View style={styles.content}>
         <View style={styles.grid}>
-          {images.map((item) => (
-            <TouchableOpacity
-              key={item.id}
-              onPress={() => handleSelect(item.isCorrect)}
-              activeOpacity={0.8}
-            >
-              <Animated.View
-                style={[
-                  styles.imageWrapper,
-                  { transform: [{ scale: scaleAnim }] },
-                ]}
-              >
-                <Image source={item.source} style={styles.image} />
+          {images.map(img => (
+            <TouchableOpacity key={img.id} onPress={() => handleSelect(img.isCorrect)} activeOpacity={0.7}>
+              <Animated.View style={[styles.card, { transform: [{ scale }] }]}>  
+                <Image source={{ uri: img.uri }} style={styles.pic} />
               </Animated.View>
             </TouchableOpacity>
           ))}
         </View>
-
-        {feedback === 'correct' && (
-          <Animatable.Text
-            animation="bounceIn"
-            style={styles.correctText}
-          >
-            🎉 Correct! 🎉
-          </Animatable.Text>
-        )}
-
-        {feedback === 'wrong' && (
-          <Animatable.Text
-            animation="shake"
-            style={styles.wrongText}
-          >
-            😕 Try Again!
-          </Animatable.Text>
-        )}
+        {feedback === 'correct' && <Animatable.Text animation='bounceIn' style={styles.feedbackCorrect}>✅</Animatable.Text>}
+        {feedback === 'wrong' && <Animatable.Text animation='shake' style={styles.feedbackWrong}>❌</Animatable.Text>}
+        <View style={styles.controls}>
+          <TouchableOpacity onPress={() => Speech.speak(challenges[idx].text)} style={styles.btnAudio}>
+            <Ionicons name='volume-high' size={28} color='#fff' />
+          </TouchableOpacity>
+        </View>
       </View>
     </ImageBackground>
   );
-};
+}
 
 const styles = StyleSheet.create({
-  background: { flex: 1 },
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  title: {
-    fontSize: 26,
-    fontWeight: 'bold',
-    color: '#4A90E2',
-    marginBottom: 15,
-    textShadowColor: '#FFF',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 2,
-  },
-  replayBtn: {
-    backgroundColor: '#FFF',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 25,
-    marginBottom: 20,
-    elevation: 2,
-  },
-  replayText: {
-    fontSize: 16,
-    color: '#333',
-  },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-  },
-  imageWrapper: {
-    margin: 10,
-    borderRadius: 15,
-    backgroundColor: '#FFF',
-    padding: 10,
-    elevation: 3,
-  },
-  image: {
-    width: 80,
-    height: 80,
-    resizeMode: 'contain',
-  },
-  correctText: {
-    fontSize: 22,
-    color: '#28A745',
-    marginTop: 30,
-    fontWeight: 'bold',
-  },
-  wrongText: {
-    fontSize: 22,
-    color: '#D0021B',
-    marginTop: 30,
-    fontWeight: 'bold',
-  },
+  bg: { flex:1 },
+  content: { flex:1, justifyContent:'center', alignItems:'center' },
+  grid: { flexDirection:'row', justifyContent:'center', flexWrap:'wrap' },
+  card: { backgroundColor:'#fff', borderRadius:12, padding:10, margin:12, elevation:4, shadowColor:'#000', shadowOpacity:0.2, shadowOffset:{width:0,height:2}, shadowRadius:4 },
+  pic: { width:100, height:100, borderRadius:8 },
+  feedbackCorrect: { position:'absolute', top:'45%', fontSize:48, color:'#2ECC71' },
+  feedbackWrong: { position:'absolute', top:'45%', fontSize:48, color:'#E74C3C' },
+  controls: { position:'absolute', bottom:40, flexDirection:'row' },
+  btnAudio: { backgroundColor:'#F39C12', padding:16, borderRadius:30, elevation:4 }
 });
-
-export default SoundMatchActivityScreen;
